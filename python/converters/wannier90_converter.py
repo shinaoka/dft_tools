@@ -574,7 +574,7 @@ class Wannier90Converter(Check,ConverterTools):
         del local_shells
 
         if self.total_MLWF!=sum([ sh['dim'] for sh in self.shells ]):
-            print self.total_MLWF, self.shells
+
             self.report_error("Wrong block structure of input Hamiltonian, correct it please!")
 
         self.rot_mat = [numpy.zeros((self.corr_shells[icrsh]['dim'],
@@ -1062,15 +1062,16 @@ class Wannier90Converter(Check,ConverterTools):
                                     matrix=self.n_orbitals,
                                     type_el="int")
 
-            num_bands=self.n_orbitals[self._name2SpinChannel[filename]].max()
+            num_bands=self.n_orbitals.max().max()
             read_chkpt.write_u_matrix_opt()
             if self.u_matrix_opt is None:
-                self.u_matrix_opt=[ [ [] for i in range(self._n_spin) ] for j in range(self.n_k) ]
-                
-                self.u_matrix_opt=[[numpy.zeros((num_bands,
-                                                self.total_MLWF),numpy.complex),
-                                                self._n_spin],
-                                                self.n_k]
+
+                self.u_matrix_opt=numpy.zeros((num_bands,
+                                        self.total_MLWF,
+                                        self._n_spin,
+                                        self.n_k),numpy.complex)
+
+
             self._read_3D_matrix(datafile="U_matrix_opt_"+filename+".txt",
                                  ind1=num_bands,
                                  ind2=self.total_MLWF,
@@ -1092,6 +1093,7 @@ class Wannier90Converter(Check,ConverterTools):
                                         self.total_MLWF,
                                         self._n_spin,
                                         self.n_k),numpy.complex)
+
         self._read_3D_matrix(datafile="U_matrix_"+filename+".txt",
                             ind1=self.total_MLWF,
                             ind2=self.total_MLWF,
@@ -1173,7 +1175,7 @@ class Wannier90Converter(Check,ConverterTools):
                 # U_matrix_full -> U_matrix_full^{\dagger}
                 # for each spin channel and k-point
 
-                self.u_matrix_full[k,spin_bloc,:,:]=temp_array.conjungate().transpose()
+                self.u_matrix_full[k,spin_bloc,:,:]=temp_array.conjugate().transpose()
 
 
     def _produce_projectors(self):
@@ -1387,13 +1389,14 @@ class Wannier90Converter(Check,ConverterTools):
         if is_master_node():
             try:
                 with open(datafile, "rb") as read_3D_matrix_txt_file:
-                    read_3D_matrix = cStringIO.StringIO(read_3D_matrix_txt_file.read())  # writes file to memory to speed up reading
+                    array = cStringIO.StringIO(read_3D_matrix_txt_file.read())  # writes file to memory to speed up reading
                     for k in range(ind4):
                         for j in range(ind2):
                            for  i in range(ind1):
-                                x = read_3D_matrix.readline().split()
+                                x = array.readline().split()
                                 if is_complex: #for checking format in file
                                     if len(x)==2:
+
                                         if not isinstance(matrix[i,j,ind3,k],complex): #type of matrix
                                             self.report_error("Invalid type of matrix, complex matrix was expected!")
                                         matrix[i,j,ind3,k]=complex(float(x[0]),float(x[1]))
@@ -1433,9 +1436,10 @@ class Wannier90Converter(Check,ConverterTools):
 
             for k in range(self.n_k):
                 for s in range(self._n_spin):
-                    self.hopping[k,s]=numpy.dot(self.u_matrix_full[k,s],
+                    #rotate from MLWF to Bloch to get hopping
+                    self.hopping[k,s]=numpy.dot(self.u_matrix_full[k,s].conjugate().transpose(),
                                                  numpy.dot(self.Hk[k][s],
-                                                           self.u_matrix_full[k,s].conjugate().transpose()))
+                                                           self.u_matrix_full[k,s]))
 
 
     def _sumk_dft_par(self):

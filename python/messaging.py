@@ -3,7 +3,7 @@ from inspect import getframeinfo, currentframe
 from mpi4py import MPI
 
 # pytriqs
-from pytriqs.utility.mpi import is_master_node, bcast, barrier, slice_array, all_reduce, world
+from pytriqs.utility.mpi import is_master_node, bcast, barrier, slice_array, all_reduce, world,report
 from pytriqs.archive import HDFArchive
 
 
