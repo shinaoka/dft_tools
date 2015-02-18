@@ -1,17 +1,20 @@
 import numpy
 from inspect import getframeinfo, currentframe
-from mpi4py import MPI
+from copy import deepcopy
 
 # pytriqs
-from pytriqs.utility.mpi import is_master_node, bcast, barrier, slice_array, all_reduce, world,report
 from pytriqs.archive import HDFArchive
-
+from pytriqs.gf.local import GfImFreq, BlockGf
+from pytriqs.utility import mpi
 
 # ****** Report Class ***************
 class Report(object):
     """
         *Simple error handling.*
     """
+    def __init__(self):
+        self._verbosity=None
+
 
     def report_error(self, string):
         """
@@ -20,15 +23,15 @@ class Report(object):
         :param string: stores the message with the description of the error
         :type string: str
         """
-        comm = MPI.COMM_WORLD
-        if is_master_node():
+        comm = mpi.MPI.COMM_WORLD
+        if mpi.is_master_node():
             if isinstance(string, str):
                 inspect_data = getframeinfo(currentframe().f_back)
-                report("Error: " + string +
+                self._make_message(input_message="Error: " + string +
                    "(file: %s, line: %s, in function: %s)" % (
                 inspect_data.filename, inspect_data.lineno, inspect_data.function))
             else:
-                myprint_err("Wrong argument of the report_error" +
+                mpi.myprint_err("Wrong argument of the report_error" +
                         "function. Please send one string as an input parameter!")
         comm.Abort(-1)
 
@@ -41,9 +44,9 @@ class Report(object):
         """
         if self._verbosity==2:
             if isinstance(string, str):
-                report(string)
+                self._make_message(input_message=string)
             else:
-                report("Wrong argument of the warning" +
+                mpi.report("Wrong argument of the warning" +
                        "function. Please send one string as an input parameter!")
 
     def make_statement(self, string):
@@ -54,9 +57,9 @@ class Report(object):
         :type string: str
         """
         if isinstance(string, str):
-            report(string)
+            self._make_message(input_message=string)
         else:
-            report("Wrong argument of the warning" +
+            mpi.report("Wrong argument of the warning" +
                    "function. Please send one string as an input parameter!")
 
 
@@ -69,11 +72,45 @@ class Report(object):
         """
         if self._verbosity==2:
             if isinstance(string, str):
-                    report("Warning: " + string)
+                    mpi.report(self._make_message(input_message="Warning: "+string))
             else:
-                report("Wrong argument of the warning" +
+                mpi.report("Wrong argument of the warning" +
                        "function. Please send one string as an input parameter!")
 
+
+    def _make_message(self,input_message=None):
+        """
+        Prepares message for the user.
+        :param input_message: Message for user which will be formatted
+        :type input_message: str
+        :return: Nicely formatted message
+        """
+
+        edge_line="!------------------------------------------------------------------------------------!"
+        line="                                                                                     !"
+        line_width=len(line)
+        words=input_message.split()
+
+        message="\n"+edge_line+"\n"
+
+        current_line=""
+
+        for indx,word in enumerate(words):
+
+            # case of full lines
+            if (len(current_line)+len(" "+word))<line_width:
+                current_line+=" "+word
+            else:
+                message+=line+ "\r!"+current_line+"\n"
+                current_line=" "+word
+
+            # last line which is not a full line
+            if indx==(len(words)-1):
+                message+=line+ "\r!"+current_line+"\n"
+
+        message+=edge_line+"\n"
+
+        return message
 
 
 class Check(Report):
@@ -106,6 +143,7 @@ class Check(Report):
         self._what_changed=[] #list with parameters which have changed
         self._critical_par_changed=False
         self._critical_par=None
+        self._n_corr=None
 
     @property
     def blocnames(self):
@@ -249,45 +287,6 @@ class Check(Report):
                                  dictionary=dictionary)
 
 
-    def _save_par_hdf(self,name=None,dictionary=None):
-        """
-        Saves data to hdf file.
-
-        :param name: Name of the folder in hdf file where data will be saved, expects name from the main "directory",
-                    if name is not present it will be created
-        :type name: str
-
-        :param dictionary:  dictionary with crucial data to save, if
-                            any entry is already present in hdf file it will be overwritten, mandatory parameter
-        :type dictionary: dict
-
-        """
-        if is_master_node:
-
-             try:
-
-                ar = HDFArchive(self._filename + ".h5", "a")
-
-
-                if not (name in ar):
-
-                    self.report_warning("""Directory %s not found."""%name)
-                    ar.create_group(name)
-
-
-
-                for it in dictionary:
-                    if it in ar[name]and not self._parameters_changed:
-                        self.report_warning("Element "+it+" found in %s folder. Its previous content will be overwritten."%name)
-                    ar[name][it] = dictionary[it]
-
-                del ar
-
-             except IOError:
-
-                self.report_error("Appending "+ self._filename + ".h5 file failed!")
-
-
     def _parameters_changed_core(self, items_to_check=None,dictionary=None, hdf_dir=None):
         """
 
@@ -310,7 +309,7 @@ class Check(Report):
         :return: True if parameters have changed, False otherwise
         """
         self._parameters_to_check=dictionary
-        if is_master_node():
+        if mpi.is_master_node():
             try:
                 ar = HDFArchive(self._filename + ".h5", "a")
                 if hdf_dir in ar:
@@ -346,7 +345,7 @@ class Check(Report):
 
                 self.report_error("Data from  file " + self._filename + ".h5 couldn't be read")
 
-        self._parameters_changed=bcast(self._parameters_changed)
+        self._parameters_changed=mpi.bcast(self._parameters_changed)
 
         return self._parameters_changed
 
@@ -362,7 +361,7 @@ class Check(Report):
             for item in range(len(par)):
                 if par[item] == "None":
                     par[item] = None
-                elif (    isinstance(par[item], list) or
+                elif (isinstance(par[item], list) or
                               isinstance(par[item], dict)):
                     self._convert_str_to_None(par[item])
 
@@ -410,7 +409,7 @@ class Check(Report):
             :type dictionary: dict
 
         """
-        if is_master_node():
+        if mpi.is_master_node():
             try :
                 ar = HDFArchive(self._filename + ".h5", "a")
                 if not name in ar: ar.create_group(name)
@@ -481,8 +480,8 @@ class Check(Report):
     def check_n_corr(self,n_corr=None):
         """
         Checks whether number of correlated shell is valid.
-        :param num_corr: number of correlated shell
-        :type num_corr: int
+        :param n_corr: number of correlated shell
+        :type n_corr: int
 
         :return: bool, True if num_corr is valid otherwise False
         """
@@ -514,8 +513,8 @@ class Check(Report):
         """
         Makes a report  about the parameter which has changed.
 
-        :param new_parameter: new dictionary with parameters to check
-        :type: new_parameter: HDFArchive
+        :param item: new dictionary with parameters to check
+        :type: item: HDFArchive
 
 
         """
@@ -631,10 +630,59 @@ class Check(Report):
         :type name: str
         """
         if not isinstance(name, str):
-            report("Wrong name argument for the function" +
+            mpi.report("Wrong name argument for the function" +
                    " . Please send one string as a name parameter!")
 
-        if is_master_node:
+        if mpi.is_master_node:
             print "%s has the following form: \n" % name
             print obj
 
+
+class Save(Report):
+    """
+    Groups methods responsible for saving to hdf file
+    """
+
+    def __init__(self):
+        super(Save, self).__init__()
+        self._filename = None
+        self._parameters_changed = None
+
+
+    def _save_par_hdf(self,name=None,dictionary=None):
+        """
+        Saves data to hdf file.
+
+        :param name: Name of the folder in hdf file where data will be saved, expects name from the main "directory",
+                    if name is not present it will be created
+        :type name: str
+
+        :param dictionary:  dictionary with crucial data to save, if
+                            any entry is already present in hdf file it will be overwritten, mandatory parameter
+        :type dictionary: dict
+
+        """
+        if mpi.is_master_node:
+
+             try:
+
+                ar = HDFArchive(self._filename + ".h5", "a")
+
+
+                if not (name in ar):
+
+                    self.report_warning("""Directory %s not found."""%name)
+                    ar.create_group(name)
+
+
+
+                for it in dictionary:
+                    if it in ar[name]and not self._parameters_changed:
+                        self.report_warning("Element "+it+" found in %s folder. Its previous content will be overwritten."%name)
+                    ar[name][it] = dictionary[it]
+
+                del ar
+
+             except IOError:
+
+                self.report_error("Appending "+ self._filename + ".h5 file failed!")

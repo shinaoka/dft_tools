@@ -7,18 +7,15 @@ from ast import literal_eval
 from datetime import date
 
 # pytriqs
-from pytriqs.utility.mpi import is_master_node, bcast, barrier, slice_array, all_reduce, world
+from pytriqs.utility import mpi
 from pytriqs.archive import HDFArchive
 from pytriqs.applications.dft.U_matrix import  spherical_to_cubic
 from pytriqs.applications.dft.converters.converter_tools import ConverterTools
+from pytriqs.applications.dft.converters.wannier90_read_chkpt import read_chkpt
+from pytriqs.applications.dft.messaging import Check, Save
 
 
-#******************  wannier converter class  *******************************************
-
-from wannier90_read_chkpt import read_chkpt
-from pytriqs.applications.dft.messaging import Check
-
-class Wannier90Converter(Check,ConverterTools):
+class Wannier90Converter(Check,ConverterTools,Save):
     """
         *Class for lattice Green's function objects*
 
@@ -407,7 +404,7 @@ class Wannier90Converter(Check,ConverterTools):
         if not self._all_read:  # fresh calculations from scratch
 
             #delete content of hdf file it is invalid, start write to file from scratch
-            if is_master_node():
+            if mpi.is_master_node():
                 ar = HDFArchive(self._filename+".h5","w")
                 del ar
 
@@ -433,15 +430,15 @@ class Wannier90Converter(Check,ConverterTools):
             self._eval_mu()
             self._produce_projectors()
 
-            self.proj_mat=bcast(self.proj_mat)
-            self.n_orbitals=bcast(self.n_orbitals)
-            self._dummy_projectors_used=bcast(self._dummy_projectors_used)
-            self.u_matrix_full=bcast(self.u_matrix_full)
-
+            self.proj_mat=mpi.bcast(self.proj_mat)
+            self.n_orbitals=mpi.bcast(self.n_orbitals)
+            self._dummy_projectors_used=mpi.bcast(self._dummy_projectors_used)
+            self.u_matrix_full=mpi.bcast(self.u_matrix_full)
+            self.total_Bloch=mpi.bcast(self.total_Bloch)
             self._produce_hopping()
             self._sumk_dft_par()
 
-            if is_master_node():
+            if mpi.is_master_node():
                 self._save_par_hdf(name=self._Wannier2TRIQS,
                                dictionary=self._parameters)
 
@@ -466,8 +463,8 @@ class Wannier90Converter(Check,ConverterTools):
                             "corr_shells":self.corr_shells,
                             "use_rotations":1,
                             "rot_mat_time_inv":[0 for i in range(self.n_shells)],
-                            "n_reps":"None",
-                            "dim_reps":"None",
+                            "n_reps":-1,
+                            "dim_reps":-1,
                             "T":self.T,
                             "n_orbitals":self.n_orbitals
                             }
@@ -489,7 +486,7 @@ class Wannier90Converter(Check,ConverterTools):
             self.check_parameters_changed(dictionary=self._parameters,
                                         hdf_dir=self._Wannier2TRIQS)
 
-        barrier()
+        mpi.barrier()
 
 
     def __h_to_triqs(self):
@@ -599,7 +596,7 @@ class Wannier90Converter(Check,ConverterTools):
             for n_s in range(self._n_spin):
                 indices_nrpt = numpy.array(range(nrpt))
                 #parallelization over nrpt
-                for irpt in slice_array(indices_nrpt):
+                for irpt in mpi.slice_array(indices_nrpt):
                     rdotk = twopi * numpy.dot(self.k_point_mesh[ikpt], self.Vector_R[irpt])
                     factor = (math.cos(rdotk) + imag * math.sin(rdotk)) / float(self.Vector_R_degeneracy[irpt])
 
@@ -609,9 +606,9 @@ class Wannier90Converter(Check,ConverterTools):
                     self.total_MLWF * n_s:
                     self.total_MLWF * (n_s + 1)]
 
-                self.Hk[ikpt][n_s][:, :] = all_reduce(world,self.Hk[ikpt][n_s][:, :],lambda x_ham, y: x_ham + y)
+                self.Hk[ikpt][n_s][:, :] = mpi.all_reduce(mpi.world,self.Hk[ikpt][n_s][:, :],lambda x_ham, y: x_ham + y)
 
-                barrier()
+                mpi.barrier()
 
         #4) update parameters dictionary
 
@@ -638,7 +635,7 @@ class Wannier90Converter(Check,ConverterTools):
                 "Vector_R_degeneracy":None,
                 "Vector_R":None,  "FULL_H_R":None, "ham_r":None}
 
-        if is_master_node():
+        if mpi.is_master_node():
             try:
                 with open(filename + "_hr.dat", "rb") as hr_txt_file:
                     hr_file = cStringIO.StringIO(hr_txt_file.read())  # writes file to memory to speed up reading
@@ -701,8 +698,8 @@ class Wannier90Converter(Check,ConverterTools):
             except IOError:
                 self.report_error("Opening file %s_hr.dat failed!" %filename)
 
-        local_variable=bcast(local_variable)
-        barrier()
+        local_variable=mpi.bcast(local_variable)
+        mpi.barrier()
 
         return local_variable
 
@@ -731,7 +728,7 @@ class Wannier90Converter(Check,ConverterTools):
                 exec "self.%s = 0" % it
         found_all = True
         try:
-            if is_master_node():
+            if mpi.is_master_node():
                 if isfile(self._filename + ".h5"):
                     ar = HDFArchive(self._filename + ".h5", "a")
                     if subgrp not in ar:
@@ -760,7 +757,7 @@ class Wannier90Converter(Check,ConverterTools):
                     del ar
                 else:
                     found_all = False
-            found_all = bcast(found_all)
+            found_all = mpi.bcast(found_all)
 
         except IOError:
             self.report_warning("Opening file %s.h5 failed!" % self._filename)
@@ -1191,7 +1188,7 @@ class Wannier90Converter(Check,ConverterTools):
         """
         self.proj_mat=None
         self._set_U_matrices_None()
-        if is_master_node():
+        if mpi.is_master_node():
 
             # check if both  correlated and non correlated MLWF
             # are in the system, if so built dummy projections
@@ -1320,7 +1317,7 @@ class Wannier90Converter(Check,ConverterTools):
         :type type_el: str
         """
         types=["int","float"]
-        if is_master_node():
+        if mpi.is_master_node():
             if not isinstance(matrix,numpy.ndarray): self.report_error("Numpy array was expected as input!")
             if not isinstance(datafile,str): self.report_error("Invalid name of file: %s!"%datafile)
             if not (isinstance(ind1,int) and ind1==matrix.shape[0] ): self.report_error("Invalid first dimension of matrix!")
@@ -1386,7 +1383,7 @@ class Wannier90Converter(Check,ConverterTools):
         if not (isinstance(ind4,int) and ind4==matrix.shape[3]): self.report_error("Invalid fourth dimension of matrix!")
         if not isinstance(is_complex,bool): self.report_error("Invalid value of is_complex input parameter")
 
-        if is_master_node():
+        if mpi.is_master_node():
             try:
                 with open(datafile, "rb") as read_3D_matrix_txt_file:
                     array = cStringIO.StringIO(read_3D_matrix_txt_file.read())  # writes file to memory to speed up reading
@@ -1423,23 +1420,30 @@ class Wannier90Converter(Check,ConverterTools):
         Produces hopping integrals (rotated from Bloch space to MLWF) (to check if correct).
 
         """
+
+        self.hopping=numpy.zeros((  self.n_k,
+                                    self._n_spin,
+                                    self.total_Bloch,
+                                    self.total_Bloch),numpy.complex_)
+
+
         if self._dummy_projectors_used:
-
-            self.hopping=self.Hk
-
-        else:
-
-            self.hopping=numpy.zeros(( self.n_k,
-                                        self._n_spin,
-                                        self.total_Bloch,
-                                        self.total_Bloch),numpy.complex_)
 
             for k in range(self.n_k):
                 for s in range(self._n_spin):
-                    #rotate from MLWF to Bloch to get hopping
-                    self.hopping[k,s]=numpy.dot(self.u_matrix_full[k,s].conjugate().transpose(),
-                                                 numpy.dot(self.Hk[k][s],
-                                                           self.u_matrix_full[k,s]))
+
+                        # transformation from list to numpy.ndarray
+                        self.hopping[k,s]=self.Hk[k][s][:, :]
+
+        else:
+
+            for k in range(self.n_k):
+                for s in range(self._n_spin):
+
+                        #rotate from MLWF to Bloch to get hopping
+                        self.hopping[k,s]=numpy.dot(self.u_matrix_full[k,s].conjugate().transpose(),
+                                                     numpy.dot(self.Hk[k][s],
+                                                               self.u_matrix_full[k,s]))
 
 
     def _sumk_dft_par(self):
