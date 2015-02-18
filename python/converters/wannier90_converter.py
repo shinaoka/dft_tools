@@ -117,7 +117,7 @@ class Wannier90Converter(Check,ConverterTools,Save):
     def __init__(self, filename=None, density_required=None,
                  shells=None, corr_shells=None,
                  ham_nkpt=None, SP=0, num_zero=1E-4, SO=None,
-                 sumk_dft="SumK_DFT", Wannier2TRIQS="Wannier2TRIQS", verbosity=2,T=None):
+                 dft_subgrp="SumK_DFT", verbosity=2,T=None):
 
         """Constructor for Wannier90Converter object.
 
@@ -197,13 +197,9 @@ class Wannier90Converter(Check,ConverterTools,Save):
 
             :type SO:					int
 
-            :param sumk_dft:			Name of the directory in filename.h5 where input
+            :param dft_subgrp:			Name of the directory in filename.h5 where input
                                         parameters for sumk_dft  are stored
-            :type sumk_dft:				str
-
-            :param Wannier2TRIQS:       Name of the directory in filename.h5  where crucial parameters for
-                                        Wannier2TRIQS converter  are stored
-            :type Wannier2TRIQS:        str
+            :type dft_subgrp:				str
 
             :param verbosity: if verbosity=2 then additional information  is printed
                               out to the standard output, in particular additional information
@@ -246,17 +242,12 @@ class Wannier90Converter(Check,ConverterTools,Save):
                               "Hamiltonian can be read from filename_hr.dat and "
                               "DMFT calculations can be saved into filename.h5!")
 
-        if  isinstance(sumk_dft, str):
-            self._sumk_dft = sumk_dft
+        if  isinstance(dft_subgrp, str):
+            self._sumk_dft = dft_subgrp
         else:
             self.report_error(""""Give a name for a folder in hdf5 in
                               which results from sumk_dft will be kept!""")
 
-        if  isinstance(Wannier2TRIQS, str):
-            self._Wannier2TRIQS = Wannier2TRIQS
-        else:
-            self.report_error("""Give a name for a folder in hdf5 in
-                                 which parameters crucial for Wannier2TRIQS converter will be kept!""""")
 
         if (isinstance(ham_nkpt, list) and len(ham_nkpt) == 3 and
         all([isinstance(ham_nkpt[i], int) and ham_nkpt[i]>0 for i in range(len(ham_nkpt))])):
@@ -439,7 +430,7 @@ class Wannier90Converter(Check,ConverterTools,Save):
             self._sumk_dft_par()
 
             if mpi.is_master_node():
-                self._save_par_hdf(name=self._Wannier2TRIQS,
+                self._save_par_hdf(name=self._sumk_dft,
                                dictionary=self._parameters)
 
                 self._save_par_hdf(name=self._sumk_dft,
@@ -484,9 +475,15 @@ class Wannier90Converter(Check,ConverterTools,Save):
 
             # warn if input  parameters for Wannier_converter have changed their values since the last rerun
             self.check_parameters_changed(dictionary=self._parameters,
-                                        hdf_dir=self._Wannier2TRIQS)
+                                        hdf_dir=self._sumk_dft)
 
         mpi.barrier()
+
+    def convert_dft_input(self):
+        """
+            Reads the input files, and stores the data in the HDFfile. Checks if we have rerun or fresh installation,
+            In case of rerun checks if parameters changed (if crucial parameters changed it will stop).
+        """
 
 
     def __h_to_triqs(self):
@@ -1729,21 +1726,6 @@ class Wannier90Converter(Check,ConverterTools,Save):
         :type val: str
         """
         self.report_error("Attribute sumk_dft_input_folder cannot be modified by user!")
-
-
-    @property
-    def converter_folder(self):
-        """
-            :return: Folder from hdf file in which Wannier2TRIQS converter data is stored
-            :rtype : str
-
-        """
-        return self._Wannier2TRIQS
-
-
-    @converter_folder.setter
-    def converter_folder(self,val=None):
-        self.report_error("Attribute converter_folder cannot be modified by user!")
 
 
     def get_hopping(self,n_k,n_spin_bloc):

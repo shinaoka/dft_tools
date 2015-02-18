@@ -29,7 +29,8 @@ class Report(object):
                 inspect_data = getframeinfo(currentframe().f_back)
                 self._make_message(input_message="Error: " + string +
                    "(file: %s, line: %s, in function: %s)" % (
-                inspect_data.filename, inspect_data.lineno, inspect_data.function))
+                inspect_data.filename, inspect_data.lineno, inspect_data.function)+
+                                                 " (in "+self.__class__.__name__+")")
             else:
                 mpi.myprint_err("Wrong argument of the report_error" +
                         "function. Please send one string as an input parameter!")
@@ -44,7 +45,8 @@ class Report(object):
         """
         if self._verbosity==2:
             if isinstance(string, str):
-                self._make_message(input_message=string)
+                self._make_message(input_message=string+
+                                                 " (in "+self.__class__.__name__+")")
             else:
                 mpi.report("Wrong argument of the warning" +
                        "function. Please send one string as an input parameter!")
@@ -57,7 +59,7 @@ class Report(object):
         :type string: str
         """
         if isinstance(string, str):
-            self._make_message(input_message=string)
+            self._make_message(input_message=string+" (in "+self.__class__.__name__+")")
         else:
             mpi.report("Wrong argument of the warning" +
                    "function. Please send one string as an input parameter!")
@@ -72,7 +74,8 @@ class Report(object):
         """
         if self._verbosity==2:
             if isinstance(string, str):
-                    mpi.report(self._make_message(input_message="Warning: "+string))
+                    mpi.report(self._make_message(input_message="Warning: "+
+                                                                string+" (in "+self.__class__.__name__+")"))
             else:
                 mpi.report("Wrong argument of the warning" +
                        "function. Please send one string as an input parameter!")
@@ -88,7 +91,8 @@ class Report(object):
 
         edge_line="!------------------------------------------------------------------------------------!"
         line="                                                                                     !"
-        line_width=len(line)
+        # -2 because we need space for '!' at the end and at the beginning, between is the comment broken into lines
+        line_width=len(line)-2
         words=input_message.split()
 
         message="\n"+edge_line+"\n"
@@ -98,7 +102,8 @@ class Report(object):
         for indx,word in enumerate(words):
 
             # case of full lines
-            if (len(current_line)+len(" "+word))<line_width:
+
+            if (len(current_line)+len(" "+word))<=line_width:
                 current_line+=" "+word
             else:
                 message+=line+ "\r!"+current_line+"\n"
@@ -320,7 +325,7 @@ class Check(Report):
                         else:
                             self._parameters_changed = True
                             self.report_warning("Keyword %s not found in hdf file. New input "
-                                                "parameter will be used in calculation (update of software?)"%item)
+                                                "parameter will be used in the calculation (update of software?)."%item)
                             del ar
                             return self._parameters_changed
                     self._old_parameters = old_parameters
@@ -334,7 +339,7 @@ class Check(Report):
                             else:
                                 self.report_warning("Item %s not found in old parameters!" % item)
                         else:
-                            self.report_warning("Item %s not found in the current parameters" % item)
+                            self.report_warning("Item %s not found in the current parameters." % item)
 
                 else:
 
@@ -343,7 +348,7 @@ class Check(Report):
                 del ar
             except IOError:
 
-                self.report_error("Data from  file " + self._filename + ".h5 couldn't be read")
+                self.report_error("Data from  file " + self._filename + ".h5 couldn't be read!")
 
         self._parameters_changed=mpi.bcast(self._parameters_changed)
 
@@ -435,7 +440,7 @@ class Check(Report):
         """
         result = True
         if not mode in self._possible_modes:
-            self.report_error("Wrong mode. Mode is %s but should be %s " % (hdf_file._group.mode, mode))
+            self.report_error("Wrong mode. Mode is %s but should be %s !" % (hdf_file._group.mode, mode))
 
         if not isinstance(hdf_file, HDFArchive):
             result = False
@@ -556,17 +561,17 @@ class Check(Report):
             bloc=struct[0]
 
             if not bloc in self._gf_struct:
-                self.report_error("Wrong structure of Green's function (wrong blocks)")
+                self.report_error("Wrong structure of Green's function (wrong blocks)!")
 
             if not isinstance(Object[bloc], GfImFreq):
-                self.report_error("Wrong structure of Green's function (wrong type)")
+                self.report_error("Wrong structure of Green's function (wrong type)!")
 
             str_indices=["%s"%i for i in range(len(self._gf_struct[bloc]))]
             if str_indices!=Object[bloc].indices:
-                self.report_error("Wrong structure of Green's function (wrong indices)")
+                self.report_error("Wrong structure of Green's function (wrong indices)!")
 
             if Object[bloc].beta != self._beta:
-                self.report_error("Invalid value of beta for block %s"%bloc)
+                self.report_error("Invalid value of beta for block %s !"%bloc)
 
         return True
 
