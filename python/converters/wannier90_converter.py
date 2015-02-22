@@ -234,34 +234,161 @@ class Wannier90Converter(Check,ConverterTools,Save):
 
     def convert_dft_input(self):
         """
-            Reads the input files, and stores the data in the HDF file. Checks if we have rerun or fresh installation,
+            Reads the input files, and stores the data in the HDF file. Checks if we have rerun or fresh calculation,
             In case of rerun checks if parameters changed (if crucial parameters changed it will stop).
 
              **Parameters**::
-                * Parameters read from the text file
+                * Parameters read from the extra_input,txt text file
 
-                    -T:     transformation matrix from spherical to real harmonics needed for
+                    -T: transformation matrix from spherical to real harmonics needed for
                         systems which require Hamiltonian beyond Kanamori Hamiltonian,
-                        T has a form of the list every element of list  T corresponds to the different inequivalent correlated shell,
-                        every element of the list is of type numpy.array
+                        T has a form of the list every element of the list T corresponds
+                        to the different inequivalent correlated shell,
+                        every element of the list is of type dict
 
                         For example:
-                        T=[array([
-                          [ 0.00000000-0.70710678j,  0.00000000+0.j,    0.00000000+0.j,0.00000000+0.j,0.00000000+0.70710678j],
-                          [ 0.00000000+0.j        ,  0.00000000+0.70710678j,0.00000000+0.j,    0.00000000+0.70710678j,  0.00000000+0.j        ],
-                          [ 0.00000000+0.j        ,  0.00000000+0.j ,1.00000000+0.j,  0.00000000+0.j,  0.00000000+0.j        ],
-                          [ 0.00000000+0.j        ,  0.70710678+0.j, 0.00000000+0.j, -0.70710678+0.j,  0.00000000+0.j        ],
-                          [ 0.70710678+0.j        ,  0.00000000+0.j, 0.00000000+0.j,  0.00000000+0.j,  0.70710678+0.j        ]])
-                         ]
-                        T type:   list numpy.array elements
+                        T=[{"Re":[[0.0,            0.0,            0.0,            0.0,            0.0            ], #beginnig of the real block
+                                [0.0,            0.0,            0.0,            0.0,            0.0            ],
+                                [0.0,            0.0,            1.0,            0.0,            0.0            ],
+                                [0.0,           -0.70711,  0.0,            0.70711,  0.0            ],
+                                [0.70711,  0.0,            0.0,            0.0,            0.70711  ]], !end of the real block
+
+                            "Im":[[-0.70711,   0.0,            0.0,            0.0,            0.70711    ], #begining of imaginary block
+                                [0.0,            0.70711,  0.0,            0.70711,  0.0            ],
+                                [0.0,            0.0,            0.0,            0.0,            0.0            ],
+                                [0.0,            0.0,            0.0,            0.0,            0.0            ],
+                                [0.0,            0.0,            0.0,            0.0,            0.0            ]] !end of imaginary block
+                        }]
 
                     - verbosity: if verbosity=2 then additional information  is printed
                                 out to the standard output, in particular additional information
                                 will be printed in case input parameters has changed from the last time.
                                 verbosity type : int
 
+                    - num_zero: defines what we mean by numerical zero, it is used to check if the structure of
+                                Hamiltonian is correct
+                                num_zero type : float
 
+                 In case of parameters read from extra_input,txt case of each letter in every keyword is important.
+
+                * Parameters extracted from data stored in filename.win file
+
+                    - density_required: total number of electrons (number of correlated electrons and non correlated
+                                        electrons in the whole system described by lattice Hamiltonian in MLWF basis.
+
+                                        This parameter is calculated from Hk (Fourier transformed HR) and  fermi_energy
+                                        keyword from filename.win
+
+                                        density_required type : float
+
+
+                    -corr_shells:   Defines structure of correlated shells. Every list represents one correlated site:\n
+                                    Keywords in each entry are as follows:
+                                    [{"atom":atom, "sort":sort, "l":l, "dim":dim, "SO":SO, "irep":irep }, {....}]\n
+                                    Description:
+
+                                        * atom: number of the atom
+
+                                        * sort: label which marks symmetry equivalent atoms,
+                                                it is the same for the symmetry equivalent atoms
+
+                                        * l: angular momentum quantum number
+
+                                        * dim: number of orbitals for the particular shell
+
+                                        * SO: spin orbit, if included is 1 otherwise it is 0)
+
+                                        * irep: dummy parameter set to 0
+
+                                    Parameter corr_shells is calculated form the following blocks:
+
+                                       Begin Projections
+                                        ---------------
+                                        ---------------
+                                        ---------------
+                                       End Projections
+
+
+                                       and
+
+                                       begin atoms_frac
+                                        ---------------
+                                        ---------------
+                                        ---------------
+                                       end atoms_frac
+
+                                    in filename.win
+
+                                    corr_shells type : list of dictionaries which values are int
+
+                    - shells:   Defines structure of all shells. Every list represents one site.
+                                Keywords in each entry are as follows: \n
+                                [{"atom":atom, "sort":sort,"l":l, "dim":dim, }, {....}]
+                                Description:
+
+                                    * atom: number of the atom
+
+                                    * sort: label which marks symmetry equivalent atoms,
+                                            it is the same for the symmetry equivalent atoms
+
+                                    * l: angular momentum quantum number
+
+                                    * dim: number of orbitals for the particular shell
+
+                                Parameter shells is calculated form the following blocks:
+
+                                       Begin Projections
+                                        ---------------
+                                        ---------------
+                                        ---------------
+                                       End Projections
+
+                                       and
+
+                                       begin atoms_frac
+                                        ---------------
+                                        ---------------
+                                        ---------------
+                                       end atoms_frac
+
+                                in filename.win
+
+                                shells type : list of dictionaries which values are int
+
+                    - ham_nkpt: k-point sampling needed for the creation of Hk from H_R.
+                                In is built from  mp_grid keyword from filename.win file.
+
+                                ham_nkpt: list of int
+
+                    - SP:   defines whether we have spin-polarised or spin-less calculation. \n
+                            Possible values:
+
+                                * SP=0 spin-less calculations
+
+                                * SP=1 spin-polarised calculation
+
+                            If filename.win is present then SP=0,
+                            if filename_up.win and filename_down.win are both present then SP=1
+
+                            SP type: int
+
+                    - SO:   defines whether or not we have spin-orbit calculations.\n
+                            Possible values are:
+
+                                * SO=0 no spin-orbit calculations
+
+                                * SO=1 spin-orbit calculations
+
+                            SO type: int
+
+                            If filename.win is present and inside of it there is keyword  spinors=true
+                            then SO=1, otherwise SO=0
+
+                     While reading keywords from filename,win fortran convention is honoured
+                    (case of the letters do not matter).
         """
+
+
 
         #*********************validity test for the input parameters **********************************
         if isinstance(num_zero, float) and 1.0>num_zero>0.0:
