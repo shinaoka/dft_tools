@@ -11,7 +11,6 @@ from pytriqs.utility import mpi
 from pytriqs.archive import HDFArchive
 from pytriqs.applications.dft.U_matrix import  spherical_to_cubic
 from pytriqs.applications.dft.converters.converter_tools import ConverterTools
-from pytriqs.applications.dft.converters.wannier90_read_chkpt import read_chkpt
 from pytriqs.applications.dft.messaging import Check, Save
 
 
@@ -26,12 +25,9 @@ class Wannier90Converter(Check,ConverterTools,Save):
             -  Reads H_R from wannier90.x output file, Fourier transform it to H_k.
                 (method: __h_to_triqs)
 
-            -  Reads projectors from seedname*.chk file(s) and transforms it to the proper format
+            -  Reads projectors from seedname*.chk.fmt file(s) and transforms it to the proper format.
+               seedname*.chk.fmt are formatted checkpoints files, (formatted files store data in machine independent way)
                 (method: _produce_projectors, fortran module: wannier90_read_chkpt)
-
-            -  Calculates approximate value of chemical potential in case of
-               the fresh calculation.
-               (method: _eval_mu)
 
             -  Calculates hopping integrals
                 (method: _produce_hopping)
@@ -58,7 +54,7 @@ class Wannier90Converter(Check,ConverterTools,Save):
                 (inherited method: parameters_changed)
 
 
-        **Input files for the calculation:**
+        **Input files for the calculation (to change):**
 
         Number of files needed by converter and their names depend on polarisation scenario:
 
@@ -114,99 +110,137 @@ class Wannier90Converter(Check,ConverterTools,Save):
     corr_shells_keywords=["atom","sort","l","dim","SO","irep"]
     shells_keywords=["atom","sort","l","dim"]
 
-    def __init__(self, filename=None, density_required=None,
-                 shells=None, corr_shells=None,
-                 ham_nkpt=None, SP=0, num_zero=1E-4, SO=None,
-                 dft_subgrp="SumK_DFT", verbosity=2,T=None):
+    def __init__(self, filename=None, extra_par_file=None ,
+                 dft_subgrp="SumK_DFT"):
 
         """Constructor for Wannier90Converter object.
-
 
             :param filename:  			name of file with H_R: filename_hr.dat, DMFT data.
                                         will be stored  in filename.h5
             :type filename: 			str
 
-            :param density_required: 	total number of electrons (number of correlated electrons and non correlated
-                                        electrons in the whole system described by lattice Hamiltonian in MLWF basis.
-            :type density_required:		float
-
-            :param corr_shells: 		Defines structure of correlated shells. Every list represents one correlated site:\n
-                                        Both equivalent and inequivalent sites has to be defined. Order in corr_shells
-                                        list must be consistent with order of initial projections in *.win file.
-                                        Keywords in each entry are as follows:
-
-                                        [{"atom":atom, "sort":sort, "l":l, "dim":dim, "SO":SO, "irep":irep }, {....}]\n
-                                        Description:
-
-                                            * atom: number of the atom
-
-                                            * sort: label which marks symmetry equivalent atoms,
-                                            it is the same for the symmetry equivalent atoms
-
-                                            * l: angular momentum quantum number
-
-                                            * dim: number of orbitals for the particular shell
-
-                                            * SO: spin orbit, if included  is 1 otherwise it is 0)
-
-                                            * irep: dummy parameter set to 0
-            :type corr_shells:			list of dictionaries which values are   int
-
-            :param shells: 		        Defines structure of all shells. Every list represents one site. Order in shells
-                                        list must be consistent with order of initial projections in *.win file.
-                                        Keywords in each entry are as follows: \n
-                                        [{"atom":atom, "sort":sort,"l":l, "dim":dim, }, {....}]
-                                        Description:
-
-                                            * atom: number of the atom
-
-                                            * sort: label which marks symmetry equivalent atoms,
-                                                    it is the same for the symmetry equivalent atoms
-
-                                            * l: angular momentum quantum number
-
-                                            * dim: number of orbitals for the particular shell
-
-            :type shells:			list of dictionaries  which values are   int
-
-
-            :param ham_nkpt:			k-point sampling  needed for the creation of Hk from H_R.
-                                        In case input wannier90.x *.win file is provided it has
-                                        to be the same as mp_grid from *.win file.
-            :type ham_nkpt:				list of int
-
-            :param SP:				    defines whether we have spin-polarised or spin-less calculation. \n
-                                        Possible values:
-
-                                            * SP=0 spin-less calculations
-
-                                            * SP=1 spin-polarised calculation
-
-            :type SP: 				    int
-
-            :param num_zero:			defines what we mean by numerical zero, it is used to check if the structure of
-                                        Hamiltonian is correct
-            :type num_zero:				float
-
-            :param SO:					defines whether or not we have spin-orbit calculations.\n
-                                        Possible values are:
-
-                                            * SO=0   no spin-orbit calculations
-
-                                            * SO=1   spin-orbit calculations
-
-            :type SO:					int
+            :param extra_par_file:      text file with some extra parameters (num_zero, verbosity, T)
+            :type  extra_par_file:      str
 
             :param dft_subgrp:			Name of the directory in filename.h5 where input
                                         parameters for sumk_dft  are stored
-            :type dft_subgrp:				str
+            :type dft_subgrp:			str
 
-            :param verbosity: if verbosity=2 then additional information  is printed
-                              out to the standard output, in particular additional information
-                              will be printed in case input parameters has changed from the last time.
-            :type verbosity: int
 
-            :param T:   transformation matrix from spherical to real harmonics needed for
+            """
+
+        super(Wannier90Converter, self).__init__()
+
+        #********************* Sorted fields **********************************
+
+        self.FULL_H_R = None # H_R
+
+        self.Hk = None # H_k
+
+        self.SO = None # defines whether or not we have a spin-orbit calculation
+
+        self.SP = None # defines whether or not we have a spin polarised  calculation
+
+        self.T = None # Rotation matrices: complex harmonics to cubic harmonics for each inequivalent correlated shell
+
+        self.Vector_R_degeneracy = None # degeneracy of each Wigner-Seitz grid point
+
+        self.Vector_R = None # vector with Wigner-Seitz grid points for Fourier transformation H_R -> H_k
+
+
+        self.corr_shells = None # all correlated shells (also symmetry equivalent)
+
+        self.corr_to_inequiv = None # mapping: correlated shell -> inequivalent correlated shell
+
+        self.density_required = None # total number of electrons
+
+        self.k_point_mesh = None # k-point grid
+
+        self.inequiv_to_corr = None # mapping: inequivalent correlated shell -> correlated shell
+
+        self.n_k = None # total number of k-points
+
+        self.n_inequiv_corr_shells = None # number of inequivalent correlated shells
+
+        self.n_orbitals = None # number of bands used to produce MLWF for each spin channel and each k-point
+
+        self.proj_mat = None # projectors for DMFT calculations
+
+        self.rot_mat = None # rotation matrices for symmetry equivalent sites
+
+        self.shells = None # all shells (also symmetry equivalent)
+
+        self.total_Bloch = None # total number of Bloch states used for the construction of MLWF
+
+        self.total_MLWF = None # total number of MLWF (both correlated and an correlated)
+
+
+        self._R_sym = None # symmetry operations
+
+        self._all_read = None # whether or not data needed in rerun is in the hdf file
+
+        self._disentangled_spin = None # defines disentanglement separately for each spin
+
+        self._dummy_projectors_used = False # defines whether or not dummy projectors are in use
+
+        self._extra_par_file = None # name of file with some extra parameters (num_zero, verbosity, T)
+
+        self._filename = None # core name of important files: filename_hr.dat,
+        #                       filename.h5, filename.win, filename_up.win,
+        #                       filename_down.win, filename.chk.fmt,
+        #                       filename_up.chk.fmt, filename_down.chk.fmt
+
+        self._name2SpinChannel = None  # defines mapping between name of file and spin channel
+
+        self._num_zero = None  # definition of numerical zero
+
+        self._n_spin = None # defines spin dimension for DFT data, it is 1 for spin non-polarised, spin-orbit calculation
+        #                  and 2 for spin polarised calculation
+
+        self._parameters = None  # parameters specific for Wannier converter
+
+        self._sumk_dft = None # folder in hdf file where dft input data is stored
+
+        self._u_matrix = None  # transformation from (pseudo)-Bloch to MLWF
+
+        self._u_matrix_full = None # transformation form Bloch to MLWF
+
+        self._u_matrix_opt = None # transformation form Bloch to pseudo-Bloch smooth states
+
+        self._verbosity = None # defines level of output verbosity
+
+        self.__ham_nkpt = None # vector with three elements which defines k-point grid
+
+
+        if  isinstance(filename, str):
+            self._filename = filename
+        else:
+            self.report_error("Give a string for keyword 'filename' so that input "
+                              "Hamiltonian can be read from filename_hr.dat and "
+                              "DMFT calculations can be saved into filename.h5!")
+
+        if  isinstance(extra_par_file, str):
+            self._extra_par_file = extra_par_file
+        else:
+            self.report_error("Give a string for keyword 'extra_par_file' so that additional  "
+                              "parameters can be read!")
+
+        if  isinstance(dft_subgrp, str):
+            self._sumk_dft = dft_subgrp
+        else:
+            self.report_error(""""Give a name for a folder in hdf5 in
+                              which results from sumk_dft will be kept!""")
+
+
+    def convert_dft_input(self):
+        """
+            Reads the input files, and stores the data in the HDF file. Checks if we have rerun or fresh installation,
+            In case of rerun checks if parameters changed (if crucial parameters changed it will stop).
+
+             **Parameters**::
+                * Parameters read from the text file
+
+                    -T:     transformation matrix from spherical to real harmonics needed for
                         systems which require Hamiltonian beyond Kanamori Hamiltonian,
                         T has a form of the list every element of list  T corresponds to the different inequivalent correlated shell,
                         every element of the list is of type numpy.array
@@ -219,14 +253,19 @@ class Wannier90Converter(Check,ConverterTools,Save):
                           [ 0.00000000+0.j        ,  0.70710678+0.j, 0.00000000+0.j, -0.70710678+0.j,  0.00000000+0.j        ],
                           [ 0.70710678+0.j        ,  0.00000000+0.j, 0.00000000+0.j,  0.00000000+0.j,  0.70710678+0.j        ]])
                          ]
-            :type T:   list numpy.array elements
-            """
+                        T type:   list numpy.array elements
 
-        super(Wannier90Converter, self).__init__()
+                    - verbosity: if verbosity=2 then additional information  is printed
+                                out to the standard output, in particular additional information
+                                will be printed in case input parameters has changed from the last time.
+                                verbosity type : int
+
+
+        """
 
         #*********************validity test for the input parameters **********************************
         if isinstance(num_zero, float) and 1.0>num_zero>0.0:
-            self._num_zero = num_zero  # definition of numerical zero
+            self._num_zero = num_zero
         else:
             self.report_error("Numerical zero is wrongly defined!")
 
@@ -234,20 +273,6 @@ class Wannier90Converter(Check,ConverterTools,Save):
             self.density_required = density_required
         else:
             self.report_error("Define  required density!")
-
-        if  isinstance(filename, str):
-            self._filename = filename
-        else:
-            self.report_error("Give a string for keyword 'filename' so that input "
-                              "Hamiltonian can be read from filename_hr.dat and "
-                              "DMFT calculations can be saved into filename.h5!")
-
-        if  isinstance(dft_subgrp, str):
-            self._sumk_dft = dft_subgrp
-        else:
-            self.report_error(""""Give a name for a folder in hdf5 in
-                              which results from sumk_dft will be kept!""")
-
 
         if (isinstance(ham_nkpt, list) and len(ham_nkpt) == 3 and
         all([isinstance(ham_nkpt[i], int) and ham_nkpt[i]>0 for i in range(len(ham_nkpt))])):
@@ -266,38 +291,8 @@ class Wannier90Converter(Check,ConverterTools,Save):
         if  all([self.check_shell(x=shells[i],t=self.__class__.shells_keywords) for i in range(len(shells))]):
             self.shells=shells
         else:
-            self.report_error("Invalid shells! You have to specify shells (this " +
+            self.report_error("Invalid shells! You have to specify shells (this "+
                               "defines the block structure of all objects).")
-
-        # 2) check if the  same order in shells and corr_shells
-        shells_to_comp=[] #stores those shells which correspond to corr_shells
-        # number of correlated shells
-        self.n_corr_shells=len(self.corr_shells)
-
-        # number of all shells
-        self.n_shells=len(self.shells)
-
-
-        for n_shell in range(self.n_shells):
-            for n_corr in range(self.n_corr_shells):
-
-
-                if self.compare_shells( shell=self.shells[n_shell],
-                                        corr_shell=self.corr_shells[n_corr]):
-
-                    shells_to_comp.append(self.shells[n_shell])
-                    break
-
-
-        if len(shells_to_comp)!=self.n_corr_shells:
-                self.report_error("Shells are not consistent with corr_shells!")
-
-        for n_corr in range(self.n_corr_shells):
-            if not self.compare_shells( shell=shells_to_comp[n_corr],
-                                        corr_shell=self.corr_shells[n_corr]):
-                self.report_error("Shells are not consistent with corr_shells!")
-
-        #********************************
 
         if not (isinstance(SP, int) and  (SP == 0 or SP == 1)):
             self.report_error("Wrong value of spin, possible values are 0 or 1!")
@@ -314,9 +309,6 @@ class Wannier90Converter(Check,ConverterTools,Save):
         else:
             self.SP = SP
 
-        #number of spin channels in the system; in
-        # the system for spin orbit calculation
-        # if not self._n_spin=1 it will be set to self._n_spin=1
         self._n_spin=self.SP+1-self.SO
 
         if verbosity == 2:
@@ -325,24 +317,6 @@ class Wannier90Converter(Check,ConverterTools,Save):
             self.make_statement("No additional output will be printed out from lattice module.")
             self._verbosity = "None"
 
-        #*********************Initialize the rest of parameters **********************************
-        self.total_MLWF = None # total number of MLWF (both correlated and an correlated)
-        self.total_Bloch = None # total number of Bloch states used for the construction of MLWF
-        self.R_sym = None # symmetry operations
-        self.FULL_H_R = None # H_R
-        self.Vector_R_degeneracy = None # degeneracy of each Wigner-Seitz grid point
-        self.Vector_R = None #vector with Wigner-Seitz grid points for Fourier transformation H_R -> H_k
-        self.k_point_mesh = None #k-point grid
-        self.Hk = None # H_k
-        self.corr_to_inequiv=None # mapping: correlated shell -> inequivalent correlated shell
-        self.inequiv_to_corr=None # mapping: inequivalent correlated shell -> correlated shell
-        self.rot_mat=None #rotation matrices for symmetry equivalent sites
-        self.n_inequiv_corr_shells=None # number of inequivalent correlated shells
-        self.u_matrix_opt=None # transformation form Bloch to pseudo-Bloch smooth states
-        self.u_matrix=None  # transformation from (pseudo)-Bloch to MLWF
-        self.u_matrix_full=None # transformation form Bloch to MLWF
-        self.n_orbitals=None #number of bands used to produce MLWF for each spin channel and each k-point
-
 
         # Determine the number of inequivalent correlated shells, has to be known for further reading...
         self.n_inequiv_corr_shells, self.corr_to_inequiv, self.inequiv_to_corr=self.det_shell_equivalence(corr_shells=self.corr_shells)
@@ -350,18 +324,13 @@ class Wannier90Converter(Check,ConverterTools,Save):
         # parameters needed by both rerun and fresh run
         self.n_k = self.__ham_nkpt[0] * self.__ham_nkpt[1] * self.__ham_nkpt[2] #number of k-points
 
-        # defines mapping between name of file and spin channel
         self._name2SpinChannel={self._filename+"_up":0,
                                 self._filename+"_down":1,
                                 self._filename:0 }
 
-        # defines disentanglement separately for each spin
         self._disentangled_spin={i: False for i in range(self._n_spin)}
 
-        # defines whether or not dummy projectors are in use
-        self._dummy_projectors_used=False
 
-        # parameters specific for Wannier converter
         self._parameters={"num_zero":self._num_zero,
                           "verbosity":self._verbosity,
                           "ham_nkpt":self.__ham_nkpt}
@@ -379,6 +348,7 @@ class Wannier90Converter(Check,ConverterTools,Save):
             for i in range(self.n_inequiv_corr_shells):
                 self.T.append(spherical_to_cubic(l=self.corr_shells[self.inequiv_to_corr[i]]["l"]))
 
+
         #*********************check data from the previous run **********************************
         things_to_load=["n_k", "SP", "SO", "density_required", "shells","n_shells",
                         "corr_shells", "n_corr_shells", "T", "n_orbitals", "proj_mat",
@@ -391,8 +361,7 @@ class Wannier90Converter(Check,ConverterTools,Save):
                                                                 thing_to_load=things_to_load)
 
 
-
-        if not self._all_read:  # fresh calculations from scratch
+        if not self._all_read:  # calculation from scratch
 
             #delete content of hdf file it is invalid, start write to file from scratch
             if mpi.is_master_node():
@@ -400,10 +369,10 @@ class Wannier90Converter(Check,ConverterTools,Save):
                 del ar
 
             self.k_point_mesh = None
-            self.R_sym=[]
+            self._R_sym=[]
             for n_corr in range(self.n_corr_shells):
 
-                self.R_sym.append({"atom":self.corr_shells[n_corr]["atom"],
+                self._R_sym.append({"atom":self.corr_shells[n_corr]["atom"],
                                     "sort":self.corr_shells[n_corr]["sort"],
                                     "rot_mat":numpy.zeros((self.corr_shells[n_corr]['dim'],
                                                           self.corr_shells[n_corr]['dim']),
@@ -418,18 +387,19 @@ class Wannier90Converter(Check,ConverterTools,Save):
                 #   "eig":      eigenvalues which correspond to the particular correlated site
 
             self.__h_to_triqs()
-            self._eval_mu()
             self._produce_projectors()
 
             self.proj_mat=mpi.bcast(self.proj_mat)
             self.n_orbitals=mpi.bcast(self.n_orbitals)
             self._dummy_projectors_used=mpi.bcast(self._dummy_projectors_used)
-            self.u_matrix_full=mpi.bcast(self.u_matrix_full)
+            self._u_matrix_full=mpi.bcast(self._u_matrix_full)
             self.total_Bloch=mpi.bcast(self.total_Bloch)
+
             self._produce_hopping()
             self._sumk_dft_par()
 
             if mpi.is_master_node():
+
                 self._save_par_hdf(name=self._sumk_dft,
                                dictionary=self._parameters)
 
@@ -478,12 +448,6 @@ class Wannier90Converter(Check,ConverterTools,Save):
                                         hdf_dir=self._sumk_dft)
 
         mpi.barrier()
-
-    def convert_dft_input(self):
-        """
-            Reads the input files, and stores the data in the HDFfile. Checks if we have rerun or fresh installation,
-            In case of rerun checks if parameters changed (if crucial parameters changed it will stop).
-        """
 
 
     def __h_to_triqs(self):
@@ -545,8 +509,8 @@ class Wannier90Converter(Check,ConverterTools,Save):
                 if self.compare_shells(shell=self.shells[ish],
                                        corr_shell=self.corr_shells[icrsh]):
 
-                    self.R_sym[icrsh]["eig"]= local_shells[ish]["eig"]
-                    self.R_sym[icrsh]["rot_mat"]=local_shells[ish]["rot_mat"]
+                    self._R_sym[icrsh]["eig"]= local_shells[ish]["eig"]
+                    self._R_sym[icrsh]["rot_mat"]=local_shells[ish]["rot_mat"]
                     break
 
             #in case of spin-polarised calculation we run only through "up"
@@ -575,8 +539,8 @@ class Wannier90Converter(Check,ConverterTools,Save):
                                 self.corr_shells[icrsh]['dim']),
                                numpy.complex_) for icrsh in range(self.n_corr_shells)]
         for icrsh in range(self.n_corr_shells):
-            self.rot_mat[icrsh]=numpy.dot(self.R_sym[icrsh ]["rot_mat"],
-            self.R_sym[self.corr_to_inequiv[icrsh]]["rot_mat"].conjugate().transpose())
+            self.rot_mat[icrsh]=numpy.dot(self._R_sym[icrsh ]["rot_mat"],
+            self._R_sym[self.corr_to_inequiv[icrsh]]["rot_mat"].conjugate().transpose())
 
         #3) Constructs Hk
         self.Hk = [[numpy.zeros((self.total_MLWF, self.total_MLWF), dtype=complex)
@@ -613,7 +577,7 @@ class Wannier90Converter(Check,ConverterTools,Save):
                      "Vector_R": self.Vector_R,
                      "Vector_R_degeneracy": self.Vector_R_degeneracy,
                      "Hamiltonian": self.Hk,
-                     "R_sym": self.R_sym}
+                     "R_sym": self._R_sym}
 
         self._parameters.update(Variables)
 
@@ -983,9 +947,9 @@ class Wannier90Converter(Check,ConverterTools,Save):
             * n_orbitals
 
         """
-        self.u_matrix=None
-        self.u_matrix_full=None
-        self.u_matrix_opt=None
+        self._u_matrix=None
+        self._u_matrix_full=None
+        self._u_matrix_opt=None
         self.n_orbitals=None
 
 
@@ -1058,9 +1022,9 @@ class Wannier90Converter(Check,ConverterTools,Save):
 
             num_bands=self.n_orbitals.max().max()
             read_chkpt.write_u_matrix_opt()
-            if self.u_matrix_opt is None:
+            if self._u_matrix_opt is None:
 
-                self.u_matrix_opt=numpy.zeros((num_bands,
+                self._u_matrix_opt=numpy.zeros((num_bands,
                                         self.total_MLWF,
                                         self._n_spin,
                                         self.n_k),numpy.complex)
@@ -1071,7 +1035,7 @@ class Wannier90Converter(Check,ConverterTools,Save):
                                  ind2=self.total_MLWF,
                                  ind4=self.n_k,
                                  ind3=self._name2SpinChannel[filename],
-                                 matrix=self.u_matrix_opt)
+                                 matrix=self._u_matrix_opt)
 
         else:
             if self.n_orbitals is None:
@@ -1082,8 +1046,8 @@ class Wannier90Converter(Check,ConverterTools,Save):
 
 
         read_chkpt.write_u_matrix()
-        if self.u_matrix is None:
-            self.u_matrix=numpy.zeros((self.total_MLWF,
+        if self._u_matrix is None:
+            self._u_matrix=numpy.zeros((self.total_MLWF,
                                         self.total_MLWF,
                                         self._n_spin,
                                         self.n_k),numpy.complex)
@@ -1093,7 +1057,7 @@ class Wannier90Converter(Check,ConverterTools,Save):
                             ind2=self.total_MLWF,
                             ind4=self.n_k,
                             ind3=self._name2SpinChannel[filename],
-                            matrix=self.u_matrix)
+                            matrix=self._u_matrix)
 
 
 
@@ -1128,7 +1092,7 @@ class Wannier90Converter(Check,ConverterTools,Save):
         #  maximum value of the whole n_orbitals
         self.total_Bloch=self.n_orbitals.max().max()
 
-        self.u_matrix_full=numpy.zeros((self.n_k,
+        self._u_matrix_full=numpy.zeros((self.n_k,
                                          self._n_spin,
                                          self.total_MLWF,
                                          self.total_Bloch),
@@ -1138,9 +1102,9 @@ class Wannier90Converter(Check,ConverterTools,Save):
                                 self.total_MLWF),
                                 numpy.complex)
 
-        if self.u_matrix_opt is None and self.u_matrix is None:
+        if self._u_matrix_opt is None and self._u_matrix is None:
             self.report_warning("U matrices are not set!")
-            self.u_matrix_full=None
+            self._u_matrix_full=None
 
         for k in range(self.n_k):
             for spin_bloc in range(self._n_spin):
@@ -1151,11 +1115,11 @@ class Wannier90Converter(Check,ConverterTools,Save):
 
                             for orb in range(self.total_MLWF):
 
-                                temp_array[i,j]+= self.u_matrix_opt[i,orb,spin_bloc,k] * self.u_matrix[orb,j,spin_bloc,k]
+                                temp_array[i,j]+= self._u_matrix_opt[i,orb,spin_bloc,k] * self._u_matrix[orb,j,spin_bloc,k]
 
                         else:
 
-                                temp_array[i,j]=self.u_matrix[i,j,spin_bloc,k]
+                                temp_array[i,j]=self._u_matrix[i,j,spin_bloc,k]
 
 
                 # convention in Wannier90: O' = U^{\dagger} OU
@@ -1169,7 +1133,7 @@ class Wannier90Converter(Check,ConverterTools,Save):
                 # U_matrix_full -> U_matrix_full^{\dagger}
                 # for each spin channel and k-point
 
-                self.u_matrix_full[k,spin_bloc,:,:]=temp_array.conjugate().transpose()
+                self._u_matrix_full[k,spin_bloc,:,:]=temp_array.conjugate().transpose()
 
 
     def _produce_projectors(self):
@@ -1240,7 +1204,7 @@ class Wannier90Converter(Check,ConverterTools,Save):
                 n_orb,offset=self.eval_offset(n_corr=icrsh)
                 for ik in range(self.n_k):
                     for isp in range(self._n_spin):
-                        self.proj_mat[ik,isp,icrsh,0:n_orb,:] = self.u_matrix_full[ik, isp,  offset:offset+n_orb,:]
+                        self.proj_mat[ik,isp,icrsh,0:n_orb,:] = self._u_matrix_full[ik, isp,  offset:offset+n_orb,:]
 
 
 
@@ -1438,9 +1402,9 @@ class Wannier90Converter(Check,ConverterTools,Save):
                 for s in range(self._n_spin):
 
                         #rotate from MLWF to Bloch to get hopping
-                        self.hopping[k,s]=numpy.dot(self.u_matrix_full[k,s].conjugate().transpose(),
+                        self.hopping[k,s]=numpy.dot(self._u_matrix_full[k,s].conjugate().transpose(),
                                                      numpy.dot(self.Hk[k][s],
-                                                               self.u_matrix_full[k,s]))
+                                                               self._u_matrix_full[k,s]))
 
 
     def _sumk_dft_par(self):
@@ -1588,48 +1552,6 @@ class Wannier90Converter(Check,ConverterTools,Save):
                                 "chemical_potential":self.chemical_potential}
 
 
-    def _findHOMO(self):
-        """
-        Finds index of the highest occupied orbital
-        :return: index of highest occupied orbital
-        """
-        if not isinstance(self.density_required,float):
-            self.report_error("You have to set number of electrons in the lattice system (density_required)!")
-        if self.Hk is None :
-            self.report_error("You have to set Hamiltonian")
-
-        counter=0
-        #get order of orbitals from smallest to largest
-        states=numpy.zeros(self.total_MLWF,dtype=float)
-        for orb in range(self.total_MLWF):
-            # in case of spin polarised calculations we consider
-            # only one spin-channel for estimation of chemical potential
-            states[orb]=self.Hk[self.n_k/2][0][orb,orb].real #take values around Gamma point
-        indices=states.argsort()
-
-        #find the highest occupied  state
-        for orb in indices:
-            if self.density_required<=counter:
-                return orb
-            counter+=2
-        return None
-
-
-    def _eval_mu(self):
-        """
-        Sets value of chemical potential from  H_k and density_required.
-        Calculates chemical potential as an  energy averaged over k-points
-        of the most occupied state. To be use in case of the fresh calculation.
-        """
-        mu=0
-        orb=self._findHOMO()
-        if orb is None:
-            self.report_error("Can't find the estimation for the chemical potential!")
-        for ikpt in range(self.n_k):
-           mu+=self.Hk[ikpt][0][orb,orb].real
-
-        self.chemical_potential=mu/self.n_k
-
     #getters
     def R_sym(self,n_corr):
 
@@ -1654,7 +1576,7 @@ class Wannier90Converter(Check,ConverterTools,Save):
 
         """
         if self.check_inequivalent_corr(n_corr=n_corr):
-            return self.R_sym[n_corr]
+            return self._R_sym[n_corr]
         else:
             return None
 
@@ -1666,7 +1588,7 @@ class Wannier90Converter(Check,ConverterTools,Save):
         :return: Rotation matrix from smooth pseudo-Bloch states to MLWF.
                 In case there is no disentanglement returns rotation matrix from Bloch states to MLWF.
         """
-        return self.u_matrix
+        return self._u_matrix
 
 
     @U_matrix.setter
@@ -1682,7 +1604,7 @@ class Wannier90Converter(Check,ConverterTools,Save):
                     Bloch states to smooth pseudo-Bloch states otherwise None.
 
         """
-        return self.u_matrix_opt
+        return self._u_matrix_opt
 
 
     @U_matrix_opt.setter
@@ -1699,7 +1621,7 @@ class Wannier90Converter(Check,ConverterTools,Save):
 
         """
 
-        return self.u_matrix_full
+        return self._u_matrix_full
 
 
     @U_matrix_full.setter
