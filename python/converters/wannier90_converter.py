@@ -12,6 +12,7 @@ from pytriqs.archive import HDFArchive
 from pytriqs.applications.dft.U_matrix import  spherical_to_cubic
 from pytriqs.applications.dft.converters.converter_tools import ConverterTools
 from pytriqs.applications.dft.messaging import Check, Save
+#from pytriqs.applications.dft.
 
 
 class Wannier90Converter(Check,ConverterTools,Save):
@@ -27,7 +28,7 @@ class Wannier90Converter(Check,ConverterTools,Save):
 
             -  Reads projectors from seedname*.chk.fmt file(s) and transforms it to the proper format.
                seedname*.chk.fmt are formatted checkpoints files, (formatted files store data in machine independent way)
-                (method: _produce_projectors, fortran module: wannier90_read_chkpt)
+                (method: read_format_chkpt)
 
             -  Calculates hopping integrals
                 (method: _produce_hopping)
@@ -56,51 +57,52 @@ class Wannier90Converter(Check,ConverterTools,Save):
 
         **Input files for the calculation (to change):**
 
-        Number of files needed by converter and their names depend on polarisation scenario:
+            Number of files needed by converter and their names depend on polarisation scenario:
 
-            -   Non-polarised calculation:
+                -   Non-polarised calculation:
 
-                    *seedname.win (optional)
+                        *seedname.win (obligatory)
 
-                    *seedname.chk (optional)
+                        *seedname.chk (optional)
 
-                    *seedname_hr.dat (obligatory)
+                        *seedname_hr.dat (obligatory)
 
-            -   Spinpolarised calculation:
+                -   Spinpolarised calculation:
 
-                    * seedname_up.win, seedname_down.win (optional)
+                        * seedname_up.win, seedname_down.win (obligatory)
 
-                For each spin channel calculation is performed
-                separately and as a result we get:
+                    For each spin channel calculation is performed
+                    separately and as a result we get:
 
-                    * seedname_up.chk, seedname_down.chk, (optional)
+                        * seedname_up.chk, seedname_down.chk, (optional)
 
-                    * seedname_hr_up.dat, seedname_hr_down.dat (obligatory)
+                        * seedname_hr_up.dat, seedname_hr_down.dat (obligatory)
 
-            -   Spinpolarised calculation we have:
+                -   Spin-orbit-coupled  calculation:
 
-                    *seedname.win (optional)
+                        *seedname.win (obligatory)
 
-                    *seedname.chk (optional)
+                        *seedname.chk (optional)
 
-                    *seedname_hr.dat (obligatory)
+                        *seedname_hr.dat (obligatory)
 
-                Keyword spinors = true in seedname.win is obligatory and
-                only half of the initial projections should be provided.
+                    Keyword spinors = true in seedname.win is obligatory in this case  and
+                    only half of the initial projections should be provided.
 
-        If seedname*.win and seedname*.chk are not present, dummy projectors in the
-        form of identity matrices will be calculated, otherwise projectors
-        basing on data from  seedname*.chk will be constructed. In case
-        seedname*.chk is/are provided also seedname*.win
-        has/have to be provided. In case seedname*.chk is/are present
-        check for consistency between seedname*.win and
-        seedname*.chk will be done.
+            - If seedname*.chk are not present, dummy projectors in the
+              form of rectangular matrices each with block of identity matrix
+              which corresponds to the given correlated shell will be calculated,
 
-        In case correlated and non-correlated MLWF are built by wannier90 then
-        dummy projectors are built and corr_shells must be different
-        then shells (Hk is then treated directly as hopping). In case
-        MLWF only for correlated orbitals are built then corr_shells
-        are expected to be the same as shells.
+            - If number of shells is larger than number of correlated shells  then seedname*.chk
+              is neglected and dummy projectors are always built,
+
+            - Otherwise projectors basing on data from  seedname*.chk will be constructed.
+              In case seedname*.chk is present check for consistency
+              between seedname*.win and seedname*.chk will be done.
+
+            In case dummy projectors are built, Hk becomes  hopping integrals.
+
+            If there is no *seedname_hr.dat calculation will not start.
 
 
     """
@@ -110,8 +112,7 @@ class Wannier90Converter(Check,ConverterTools,Save):
     corr_shells_keywords=["atom","sort","l","dim","SO","irep"]
     shells_keywords=["atom","sort","l","dim"]
 
-    def __init__(self, filename=None, extra_par_file=None ,
-                 dft_subgrp="SumK_DFT"):
+    def __init__(self, filename=None, extra_par_file=None, dft_subgrp="SumK_DFT"):
 
         """Constructor for Wannier90Converter object.
 
@@ -194,12 +195,13 @@ class Wannier90Converter(Check,ConverterTools,Save):
 
         self._num_zero = None  # definition of numerical zero
 
-        self._n_spin = None # defines spin dimension for DFT data, it is 1 for spin non-polarised, spin-orbit calculation
-        #                  and 2 for spin polarised calculation
+        self._n_spin = None # defines spin dimension for DFT data,
+        #                     it is 1 for spin non-polarised, spin-orbit calculation
+        #                     and 2 for spin polarised calculation
 
         self._parameters = None  # parameters specific for Wannier converter
 
-        self._sumk_dft = None # folder in hdf file where dft input data is stored
+        self._sumk_dft = None # folder in hdf file where dft input data is stored (both sumkdft and wannier converter)
 
         self._u_matrix = None  # transformation from (pseudo)-Bloch to MLWF
 
@@ -240,36 +242,17 @@ class Wannier90Converter(Check,ConverterTools,Save):
              **Parameters**::
                 * Parameters read from the extra_input,txt text file
 
-                    -T: transformation matrix from spherical to real harmonics needed for
-                        systems which require Hamiltonian beyond Kanamori Hamiltonian,
-                        T has a form of the list every element of the list T corresponds
-                        to the different inequivalent correlated shell,
-                        every element of the list is of type dict
-
-                        For example:
-                        T=[{"Re":[[0.0,            0.0,            0.0,            0.0,            0.0            ], #beginnig of the real block
-                                [0.0,            0.0,            0.0,            0.0,            0.0            ],
-                                [0.0,            0.0,            1.0,            0.0,            0.0            ],
-                                [0.0,           -0.70711,  0.0,            0.70711,  0.0            ],
-                                [0.70711,  0.0,            0.0,            0.0,            0.70711  ]], !end of the real block
-
-                            "Im":[[-0.70711,   0.0,            0.0,            0.0,            0.70711    ], #begining of imaginary block
-                                [0.0,            0.70711,  0.0,            0.70711,  0.0            ],
-                                [0.0,            0.0,            0.0,            0.0,            0.0            ],
-                                [0.0,            0.0,            0.0,            0.0,            0.0            ],
-                                [0.0,            0.0,            0.0,            0.0,            0.0            ]] !end of imaginary block
-                        }]
-
                     - verbosity: if verbosity=2 then additional information  is printed
-                                out to the standard output, in particular additional information
-                                will be printed in case input parameters has changed from the last time.
-                                verbosity type : int
+                                 out to the standard output, in particular additional information
+                                 will be printed in case input parameters have changed from the last time.
+                                 verbosity type : int
 
                     - num_zero: defines what we mean by numerical zero, it is used to check if the structure of
                                 Hamiltonian is correct
                                 num_zero type : float
 
-                 In case of parameters read from extra_input,txt case of each letter in every keyword is important.
+                In case of parameters read from extra_input,txt case of each letter in every
+                keyword is important. In case there is no such file default values will be used.
 
                 * Parameters extracted from data stored in filename.win file
 
@@ -318,6 +301,13 @@ class Wannier90Converter(Check,ConverterTools,Save):
                                        end atoms_frac
 
                                     in filename.win
+
+                                    Parameter corr_shells is used to calculate T matrix. T is
+                                    transformation matrix from spherical to real harmonics needed for
+                                    systems which require Hamiltonian beyond Kanamori Hamiltonian,
+                                    T has a form of the list, every element of the list T corresponds
+                                    to the different inequivalent correlated shell,
+                                    every element of the list is of type dict.
 
                                     corr_shells type : list of dictionaries which values are int
 
@@ -384,13 +374,14 @@ class Wannier90Converter(Check,ConverterTools,Save):
                             If filename.win is present and inside of it there is keyword  spinors=true
                             then SO=1, otherwise SO=0
 
-                     While reading keywords from filename,win fortran convention is honoured
-                    (case of the letters do not matter).
+                     While reading keywords from filename,win Fortran convention is honoured
+                    (cases of  letters do not matter,'!' starts a comment).
         """
 
+        #********************* read data from input files             **********************************
 
 
-        #*********************validity test for the input parameters **********************************
+        #********************* validity test for the input parameters **********************************
         if isinstance(num_zero, float) and 1.0>num_zero>0.0:
             self._num_zero = num_zero
         else:
@@ -406,37 +397,6 @@ class Wannier90Converter(Check,ConverterTools,Save):
             self.__ham_nkpt = ham_nkpt
         else:
             self.report_error("You have to define a proper k-mesh!")
-
-        # ******check shells********
-        # 1) elementary check if type is correct
-        if all([self.check_shell(x=corr_shells[i], t=self.__class__.corr_shells_keywords) for i in range(len(corr_shells))]):
-            self.corr_shells = corr_shells
-        else:
-            self.report_error("Invalid corr_shells! You have to specify corr_shells (this " +
-                              "defines the block structure of all objects).")
-
-        if  all([self.check_shell(x=shells[i],t=self.__class__.shells_keywords) for i in range(len(shells))]):
-            self.shells=shells
-        else:
-            self.report_error("Invalid shells! You have to specify shells (this "+
-                              "defines the block structure of all objects).")
-
-        if not (isinstance(SP, int) and  (SP == 0 or SP == 1)):
-            self.report_error("Wrong value of spin, possible values are 0 or 1!")
-
-        if isinstance(SO, int) and (SO ==0 or SO== 1):
-            self.SO = SO
-        else:
-            self.report_error("Wrong value of spin orbit coupling, " +
-                              "possible values are SO=0 or SO=1. Please correct!")
-
-        if self.SO == 1 and SP != 1:
-            self.report_warning("Value of spin overridden, SP=1")
-            self.SP = 1
-        else:
-            self.SP = SP
-
-        self._n_spin=self.SP+1-self.SO
 
         if verbosity == 2:
             self._verbosity = verbosity
@@ -457,23 +417,23 @@ class Wannier90Converter(Check,ConverterTools,Save):
 
         self._disentangled_spin={i: False for i in range(self._n_spin)}
 
-
         self._parameters={"num_zero":self._num_zero,
                           "verbosity":self._verbosity,
                           "ham_nkpt":self.__ham_nkpt}
 
         # Rotation matrices: complex harmonics to cubic harmonics for each inequivalent correlated shell
-        self.T=[]
-        if isinstance(T,list) and len(T)==self.n_inequiv_corr_shells:
-            for i in range(self.n_inequiv_corr_shells):
-                self._n_corr=i #number of inequivalent correlated shell
-                self.T.append(self.check_T_n_corr(T_array=T[i]))
-                if self.T[i] is None: self.T[i]=spherical_to_cubic(l=self.corr_shells[self.inequiv_to_corr[i]]["l"])
-            self._n_corr=None
-        else:
-            self.report_warning("Default rotation matrix from complex harmonics to cubic harmonics will be used.")
-            for i in range(self.n_inequiv_corr_shells):
-                self.T.append(spherical_to_cubic(l=self.corr_shells[self.inequiv_to_corr[i]]["l"]))
+        # TO BE REFORMULATED !!!!
+        # self.T=[]
+        # if isinstance(T,list) and len(T)==self.n_inequiv_corr_shells:
+        #     for i in range(self.n_inequiv_corr_shells):
+        #         self._n_corr=i #number of inequivalent correlated shell
+        #         self.T.append(self.check_T_n_corr(T_array=T[i]))
+        #         if self.T[i] is None: self.T[i]=spherical_to_cubic(l=self.corr_shells[self.inequiv_to_corr[i]]["l"])
+        #     self._n_corr=None
+        # else:
+        #     self.report_warning("Default rotation matrix from complex harmonics to cubic harmonics will be used.")
+        #     for i in range(self.n_inequiv_corr_shells):
+        #         self.T.append(spherical_to_cubic(l=self.corr_shells[self.inequiv_to_corr[i]]["l"]))
 
 
         #*********************check data from the previous run **********************************
@@ -490,7 +450,7 @@ class Wannier90Converter(Check,ConverterTools,Save):
 
         if not self._all_read:  # calculation from scratch
 
-            #delete content of hdf file it is invalid, start write to file from scratch
+            #delete content of hdf file if it is invalid and start to  write file from scratch
             if mpi.is_master_node():
                 ar = HDFArchive(self._filename+".h5","w")
                 del ar
@@ -535,7 +495,6 @@ class Wannier90Converter(Check,ConverterTools,Save):
 
         else:  # case of rerun
 
-            #*******TO REFORMULATE**********************
             # warn if input parameters for sumk_dft have changed their values since the last run
 
             sumk_dft_data={ "energy_unit":1.0,
@@ -571,6 +530,8 @@ class Wannier90Converter(Check,ConverterTools,Save):
                                         hdf_dir=self._sumk_dft)
 
             # warn if input  parameters for Wannier_converter have changed their values since the last rerun
+            if self._critical_par_changed: self._critical_par_changed=False #start a new search
+
             self.check_parameters_changed(dictionary=self._parameters,
                                         hdf_dir=self._sumk_dft)
 

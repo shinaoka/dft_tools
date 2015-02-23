@@ -1,10 +1,8 @@
 import numpy
 from inspect import getframeinfo, currentframe
-from copy import deepcopy
 
 # pytriqs
 from pytriqs.archive import HDFArchive
-from pytriqs.gf.local import GfImFreq, BlockGf
 from pytriqs.utility import mpi
 
 # ****** Report Class ***************
@@ -14,6 +12,7 @@ class Report(object):
     """
     def __init__(self):
         self._verbosity=None
+        self._filename=None
 
 
     def report_error(self, string):
@@ -26,15 +25,16 @@ class Report(object):
         comm = mpi.MPI.COMM_WORLD
         if mpi.is_master_node():
             if isinstance(string, str):
+
                 inspect_data = getframeinfo(currentframe().f_back)
-                self._make_message(input_message="Error: " + string +
+                self._print_message(input_message="Error: " + string +
                    "(file: %s, line: %s, in function: %s)" % (
                 inspect_data.filename, inspect_data.lineno, inspect_data.function)+
                                                  " (in "+self.__class__.__name__+")")
             else:
-                mpi.myprint_err("Wrong argument of the report_error" +
+                self._print_message("Wrong argument of the report_error" +
                         "function. Please send one string as an input parameter!")
-        comm.Abort(-1)
+            comm.Abort(-1)
 
     def make_verbose_statement(self,string):
         """
@@ -45,10 +45,10 @@ class Report(object):
         """
         if self._verbosity==2:
             if isinstance(string, str):
-                self._make_message(input_message=string+
+                self._print_message(input_message=string+
                                                  " (in "+self.__class__.__name__+")")
             else:
-                mpi.report("Wrong argument of the warning" +
+                self._print_message("Wrong argument of the warning" +
                        "function. Please send one string as an input parameter!")
 
     def make_statement(self, string):
@@ -59,9 +59,9 @@ class Report(object):
         :type string: str
         """
         if isinstance(string, str):
-            self._make_message(input_message=string+" (in "+self.__class__.__name__+")")
+            self._print_message(input_message=string+" (in "+self.__class__.__name__+")")
         else:
-            mpi.report("Wrong argument of the warning" +
+            self._print_message("Wrong argument of the warning" +
                    "function. Please send one string as an input parameter!")
 
 
@@ -74,36 +74,74 @@ class Report(object):
         """
         if self._verbosity==2:
             if isinstance(string, str):
-                    mpi.report(self._make_message(input_message="Warning: "+
-                                                                string+" (in "+self.__class__.__name__+")"))
+                    self._print_message(input_message="Warning: "+
+                                                                string+" (in "+self.__class__.__name__+")")
             else:
-                mpi.report("Wrong argument of the warning" +
+                self._print_message("Wrong argument of the warning" +
                        "function. Please send one string as an input parameter!")
 
 
-    def _make_message(self,input_message=None):
-        """
-        Prepares message for the user.
-        :param input_message: Message for user which will be formatted
+    def _print_message(self,input_message=None):
+
+       """
+
+        :param input_message: Message for the user which will be formatted
         :type input_message: str
-        :return: Nicely formatted message
-        """
+
+       """
+
+       mpi.report(self._make_message(input_message=input_message))
+
+
+    def _make_message(self,input_message=None):
 
         edge_line="!------------------------------------------------------------------------------------!"
+
+        message="\n"+edge_line+"\n"
+        message+=self._make_inner_message(input_message=input_message)
+        message+=edge_line+"\n"
+
+        return message
+
+
+    def _make_inner_message(self,input_message=None):
+        """
+        Prepares message for the user. Removes "\n" from the given message
+        and formats it so that it uniformly fills out a frame.
+        Prints out nicely formatted message.
+
+        :param input_message: Message for the user which will be formatted
+        :type input_message: str
+
+        """
+
         line="                                                                                     !"
         # -2 because we need space for '!' at the end and at the beginning, between is the comment broken into lines
         line_width=len(line)-2
-        words=input_message.split()
-
-        message="\n"+edge_line+"\n"
+        words=input_message.replace("\n"," ").split()
 
         current_line=""
-
+        message=""
         for indx,word in enumerate(words):
 
-            # case of full lines
+            # in case word is really long, break it into lines so that each line fits into frame
 
-            if (len(current_line)+len(" "+word))<=line_width:
+            if len(word)>line_width:
+                # we need to add symbol - to mark that we break a word so -1,
+                # another -1 because we new space between frame and a broken word
+                internal_width=line_width-2
+                num_lines=int(len(word)/float(internal_width)+1.0) # take into account also potential unfilled last line
+
+                for n in range(num_lines-1): # without the last line, a special case
+
+                    message+=self._make_inner_message(input_message=word[n*internal_width:(n+1)*internal_width]+"-")
+
+                # last line of a broken word
+                n=+1
+                message+=self._make_inner_message(input_message=word[n*internal_width:(n+1)*internal_width])
+
+            # case of full lines
+            elif (len(current_line)+len(" "+word))<line_width:
                 current_line+=" "+word
             else:
                 message+=line+ "\r!"+current_line+"\n"
@@ -113,51 +151,27 @@ class Report(object):
             if indx==(len(words)-1):
                 message+=line+ "\r!"+current_line+"\n"
 
-        message+=edge_line+"\n"
-
         return message
 
 
 class Check(Report):
-    n_inequiv_corr_shells=None
 
     def __init__(self):
         """
-        *Groups checks which are frequently used.*
+        *Checks if parameters have changed.*
 
         """
 
         super(Check, self).__init__()
-        self._blocnames = [["up", "down"], ["ud"]]
-        self._possible_modes = ["r+", "r"]  # r+ is used for "a"  and "w " modes
         self._parameters_changed = False
         self._verbosity=None
         # These parameters have to be set to some valid value by inheriting class
-        self.n_corr_shells=None
-        self.n_inequiv_corr_shells=None
-        self._filename = None
         self._parameters_to_check = None
         self._old_parameters = None
-        self.SO = None
-        self._n_spin_blocs=None
-        self.n_k=None
-        self._gf_struct=None
-        self._n_spin_blocs=None
-        self.n_k=None
-        self._beta=None
+
         self._what_changed=[] #list with parameters which have changed
         self._critical_par_changed=False
         self._critical_par=None
-        self._n_corr=None
-
-    @property
-    def blocnames(self):
-        return self._blocnames
-
-
-    @blocnames.setter
-    def blocnames(self,val=None):
-        self.report_error("Value of blocnames cannot be  changed!")
 
 
     def reset_parameters_changed_attr(self):
@@ -292,6 +306,28 @@ class Check(Report):
                                  dictionary=dictionary)
 
 
+    def _update_par_hdf(self,name=None,dictionary=None):
+        """
+            Updates data in  hdf file.
+
+            :param name: Name of the folder in hdf file where data will be updated, expects name from the main "directory"
+            :type name: str
+
+            :param dictionary:  dictionary with crucial data to update
+            :type dictionary: dict
+
+        """
+        if mpi.is_master_node():
+            try :
+                ar = HDFArchive(self._filename + ".h5", "a")
+                if not name in ar: ar.create_group(name)
+                ar[name].update(dictionary)
+
+                del ar
+            except IOError:
+                self.report_error("Appending to file "+self._filename + ".h5 failed!")
+
+
     def _parameters_changed_core(self, items_to_check=None,dictionary=None, hdf_dir=None):
         """
 
@@ -403,117 +439,6 @@ class Check(Report):
                     self._convert_None_to_str(par[item])
 
 
-    def _update_par_hdf(self,name=None,dictionary=None):
-        """
-            Updates data in  hdf file.
-
-            :param name: Name of the folder in hdf file where data will be updated, expects name from the main "directory"
-            :type name: str
-
-            :param dictionary:  dictionary with crucial data to update
-            :type dictionary: dict
-
-        """
-        if mpi.is_master_node():
-            try :
-                ar = HDFArchive(self._filename + ".h5", "a")
-                if not name in ar: ar.create_group(name)
-                ar[name].update(dictionary)
-
-                del ar
-            except IOError:
-                self.report_error("Appending to file "+self._filename + ".h5 failed!")
-
-
-    def check_hdf_file(self, hdf_file=None, mode=None):
-
-        """
-        Checks if the hdf file is valid and if its mode is correct.
-
-        :param hdf_file: hdf file to check
-        :type hdf_file: HDFArchive
-
-        :param mode: mode in which hdf file should be accessed
-        :type mode: str
-
-        :return: True if hdf_file is valid, False otherwise
-        """
-        result = True
-        if not mode in self._possible_modes:
-            self.report_error("Wrong mode. Mode is %s but should be %s !" % (hdf_file._group.mode, mode))
-
-        if not isinstance(hdf_file, HDFArchive):
-            result = False
-        else:
-            if not hdf_file._group.mode == mode:
-                result = False
-
-        return result
-
-
-    def check_shell(self, x=None, t=None):
-        """
-        Checks if shell has a correct structure,
-
-        :param x: shell to  check
-        :type x: dictionary
-
-        :param t: list of keywords which should be in the shell
-        :type t: str
-
-        :return: True if the structure of shell  is correct otherwise False
-                 Structure of shell is considered to be correct if keywords of
-                 x are equal to t and  for each key-value in x all values are of type int
-
-        """
-
-        return isinstance(x, dict) and  \
-               isinstance(t, list) and \
-               all([isinstance(key,str) for key in t ]) and \
-               sorted(t)==sorted(x.keys()) \
-               and all([isinstance(x[key],int) for key in x])
-
-
-    def check_n_k(self,n_k=None):
-        return 0<n_k<self.n_k
-
-
-    def check_n_spin_bloc(self,n_spin_bloc=None):
-        return 0<=n_spin_bloc<self._n_spin_blocs
-
-
-    def check_n_corr(self,n_corr=None):
-        """
-        Checks whether number of correlated shell is valid.
-        :param n_corr: number of correlated shell
-        :type n_corr: int
-
-        :return: bool, True if num_corr is valid otherwise False
-        """
-        return (isinstance(n_corr, int) and
-              0 <= n_corr < self.n_corr_shells)
-
-
-    def check_inequivalent_corr(self, n_corr=None):
-
-        """
-        Checks whether number of an inequivalent correlated shell is valid.
-
-        :param n_corr: number of inequivalent correlated shell to be checked
-        :type n_corr: int
-
-        :return: bool, True if num_corr is valid otherwise it is False.
-        """
-        if hasattr(self,"_n_inequiv_corr_shells"):
-
-            return  (isinstance(n_corr, int) and
-                     0 <= n_corr < self.n_inequiv_corr_shells)
-        else:
-
-            return  (isinstance(n_corr, int) and
-                     0 <= n_corr < self.__class__.n_inequiv_corr_shells)
-
-
     def report_par_change(self, item=None):
         """
         Makes a report  about the parameter which has changed.
@@ -539,113 +464,13 @@ class Check(Report):
         self._what_changed.append(item)
 
 
-    def check_Gf_obj(self, Object=None, n_corr=None):
-        """Checks if the structure of Green's function object is correct.
-
-        :param Object:  Green's function object for the particular inequivalent correlated shell which will be checked
-        :type  Object: BlockGf which consist of GfImFreq block(s)
-
-        :param n_corr: number of inequivalent correlated shell
-        :type n_corr: int
-
-        :return: True if Gf object is valid, otherwise will stop with error
-        """
-
-        if not self.check_inequivalent_corr(n_corr=n_corr):
-             self.report_error("Wrong value of inequivalent correlated shell!")
-
-        if not isinstance(Object, BlockGf):
-             self.report_error("Wrong Object argument. Green's function object was expected!")
-
-        for  struct in Object:
-            bloc=struct[0]
-
-            if not bloc in self._gf_struct:
-                self.report_error("Wrong structure of Green's function (wrong blocks)!")
-
-            if not isinstance(Object[bloc], GfImFreq):
-                self.report_error("Wrong structure of Green's function (wrong type)!")
-
-            str_indices=["%s"%i for i in range(len(self._gf_struct[bloc]))]
-            if str_indices!=Object[bloc].indices:
-                self.report_error("Wrong structure of Green's function (wrong indices)!")
-
-            if Object[bloc].beta != self._beta:
-                self.report_error("Invalid value of beta for block %s !"%bloc)
-
-        return True
-
-    def check_T_n_corr(self,T_array=None):
-        """
-        Checks matrix T.
-
-        :param T_array: T matrix to check for one particular inequivalent correlated shell
-        :type T_array: numpy.ndarray
-
-        :return T_array if T_array is valid otherwise None
-        :rtype : numpy.ndarray or None
-
-        """
-
-        if T_array is None:
-            return None
-
-        if isinstance(T_array, numpy.ndarray):
-            block_length = len(T_array)
-            #check T structure
-            for i in range(block_length):
-                if len(T_array[i]) == block_length:
-                    if not all([isinstance(T_array[i,j],
-                           complex) for j in range(block_length)]):
-
-                        self.report_warning("Each entry must be of complex type!"
-                                            " Default matrix T will be build for %s "
-                                            "inequivalent correlated shell." % self._n_corr)
-                        return None
-                else:
-                    self.report_warning("Square matrix was expected! "
-                                        "Default matrix T will be build for %s "
-                                        "inequivalent correlated shell." % self._n_corr)
-                    return None
-
-            if self._verbosity == 2:
-
-                self.make_statement("Valid T matrix found")
-                self.show_obj(obj=T_array,
-                              name="T matrix for %s inequivalent correlated shell" % self._n_corr)
-
-            return T_array
-
-        else:
-
-            self.report_warning("Wrong structure of T! Default matrix T "
-                                "will be build for %s inequivalent "
-                                "correlated shell." % self._n_corr)
-            return None
 
 
-    def show_obj(self, obj=None, name=None):
-        """
-        Shows any object (provide its string representation is implemented).
-
-        :param obj: python object
-        :type obj: Everything which can be send as an argument to print function.
-
-        :param name: name of object
-        :type name: str
-        """
-        if not isinstance(name, str):
-            mpi.report("Wrong name argument for the function" +
-                   " . Please send one string as a name parameter!")
-
-        if mpi.is_master_node:
-            print "%s has the following form: \n" % name
-            print obj
 
 
 class Save(Report):
     """
-    Groups methods responsible for saving to hdf file
+    Groups methods responsible for saving dara to hdf file
     """
 
     def __init__(self):
@@ -691,3 +516,97 @@ class Save(Report):
              except IOError:
 
                 self.report_error("Appending "+ self._filename + ".h5 file failed!")
+
+
+class Bracket(Report):
+    """*Allows continuation over lines provided
+    that the statement in interest is unclosed
+    with brackets {, [, or (.*"""
+
+    def __init__(self):
+        super(Bracket, self).__init__()
+        self.brackets = None
+        self.brackets_patterns = {
+            "]": "[",
+            ")": "(",
+            "}": "{",
+            ">": "<"}
+
+
+    def add_brackets(self, bracket_list=None):
+        """Updates brackets record.
+
+        :param bracket_list: list of brackets which will be added to the existing collection
+        :type bracket_list: list of strings defined by self.brackets_patterns
+        """
+
+        if self.brackets is None:
+            if not bracket_list == []:
+                self.brackets = list(bracket_list)
+        else:
+            if not bracket_list == []:
+                self.brackets.extend(bracket_list)
+
+
+    def show_brackets(self):
+        """Shows  currently stored brackets."""
+        return self.brackets
+
+
+    def find_parenthesis(self):
+        """Looks for paired brackets"""
+        if not self.brackets is None:
+            ind_brackets_to_remove = []  # stores indexes with brackets to remove in ascending order but paired
+            ind = 0
+            brackets = list(self.brackets)
+            for bracket in self.brackets:
+                # closing bracket found
+                if bracket in self.brackets_patterns:
+                    ind_brackets_to_remove.extend([ind])
+                    if self.brackets_patterns[bracket] in self.brackets:
+                        counter = brackets.count(self.brackets_patterns[bracket])
+
+                        current_position_old = self.brackets.index(
+                            self.brackets_patterns[bracket])  # start from the first occurrence
+                        current_position_new = current_position_old
+                        for item in range(counter):
+
+                            if self.brackets_patterns[bracket] in brackets[current_position_old:ind]:
+                                current_position_new = brackets.index(self.brackets_patterns[bracket],
+                                                                      current_position_old, ind)
+                                current_position_old = current_position_new + 1  # look for the next possible occurrence
+
+                            else:
+                                break
+
+                        brackets[current_position_new] = "Bracket_PAIR_BUSTED!"
+
+                        ind_brackets_to_remove.extend([current_position_new])
+
+
+                    else:
+
+                        self.show_brackets()
+
+                        self.report_error("Wrong parenthesis")
+                ind += 1
+            # remove closing brackets for which parenthesis was found
+            brackets = []
+            for bracket_ind in range(len(self.brackets)):
+                if bracket_ind not in ind_brackets_to_remove:
+                    brackets.extend([self.brackets[bracket_ind]])
+
+            self.brackets = list(brackets)
+
+
+    def reset_brackets(self):
+        """Clears records of any brackets."""
+        self.brackets = []
+
+
+    def are_brackets_ended(self):
+        """Checks if all  brackets were paired."""
+        if not self.brackets:
+            return True
+        else:
+            return False

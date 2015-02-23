@@ -30,4 +30,4 @@ __all__=['SumkDFT','Symmetry','SumkDFTTools','Wien2kConverter','HkConverter',
 'U_J_to_radial_integrals', 'U_matrix', 'U_matrix_kanamori',
 'angular_matrix_element', 'clebsch_gordan', 'cubic_names', 'eg_submatrix',
 'reduce_4index_to_2index', 'spherical_to_cubic', 't2g_submatrix',
-'three_j_symbol', 'transform_U_matrix']
+'three_j_symbol', 'transform_U_matrix',"wannier_converter_dataIO"]
