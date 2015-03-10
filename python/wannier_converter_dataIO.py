@@ -371,7 +371,11 @@ class AsciiIO(Check):
                 keyword=value
                  
                 keyword = value
-                
+
+                keyword:value
+
+                keyword : value
+
             -  Exclamation mark  '!' is treated as a beginning of the comment,
                all other symbols are valid part of values or keywords.
                  
@@ -401,7 +405,7 @@ class AsciiIO(Check):
             in_block = False
             value = ""
             keyword = ""
-            comment_marker = ["!"]
+            comment_marker = ["!","#"]
             try:
                 with open(file_to_read, "r") as input_file:
                     lines = input_file.readlines()
@@ -413,7 +417,7 @@ class AsciiIO(Check):
                                 line = line[:indx]
 
                         if line.strip():  # ignore blank lines
-                            words_in_line = line.replace("=", " ").split()
+                            words_in_line = line.replace("="," ").replace(":"," ").split()
                             if words_in_line[0].lower() == "end" and in_block: # end of block
 
                                 in_block = False
@@ -447,6 +451,7 @@ class AsciiIO(Check):
                                     self.report_warning("Redefinition of keyword in line %s"%(num_line+1)) #first line is marked as 1
                             if not in_block and keyword != "":
                                 default_dic[keyword] = value
+                                value=""
                                 keyword = ""
 
             except IOError:

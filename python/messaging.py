@@ -156,6 +156,8 @@ class Report(object):
 
 class Check(Report):
 
+    n_inequiv_corr_shells=None
+
     def __init__(self):
         """
         *Checks if parameters have changed.*
@@ -165,6 +167,7 @@ class Check(Report):
         super(Check, self).__init__()
         self._parameters_changed = False
         self._verbosity=None
+
         # These parameters have to be set to some valid value by inheriting class
         self._parameters_to_check = None
         self._old_parameters = None
@@ -172,6 +175,11 @@ class Check(Report):
         self._what_changed=[] #list with parameters which have changed
         self._critical_par_changed=False
         self._critical_par=None
+
+        self.n_corr_shells=None
+        self.n_k=None
+        self._n_spin_blocs=None
+        self.n_inequiv_corr_shells=None
 
 
     def reset_parameters_changed_attr(self):
@@ -464,8 +472,70 @@ class Check(Report):
         self._what_changed.append(item)
 
 
+    def check_n_corr(self,n_corr=None):
+        """
+        Checks whether number of correlated shell is valid.
+        :param n_corr: number of correlated shell
+        :type n_corr: int
+
+        :return: bool, True if num_corr is valid otherwise False
+        """
+        return (isinstance(n_corr, int) and
+              0 <= n_corr < self.n_corr_shells)
 
 
+    def check_shell(self, x=None, t=None):
+        """
+        Checks if shell has a correct structure,
+
+        :param x: shell to  check
+        :type x: dictionary
+
+        :param t: list of keywords which should be in the shell
+        :type t: list
+
+        :return: True if the structure of shell  is correct otherwise False
+                 Structure of shell is considered to be correct if keywords of
+                 x are equal to t and  for each key-value in x all values are of type int
+
+        """
+
+        return isinstance(x, dict) and  \
+               isinstance(t, list) and \
+               all([isinstance(key,str) for key in t ]) and \
+               sorted(t)==sorted(x.keys()) \
+               and all([isinstance(x[key],int) for key in x])\
+               and x["dim"]<=(x["l"]*2+1)
+
+
+    def check_n_k(self,n_k=None):
+        return 0<n_k<self.n_k
+
+
+    def check_n_spin_bloc(self,n_spin_bloc=None):
+        return 0<=n_spin_bloc<self._n_spin_blocs
+
+
+    def check_inequivalent_corr(self, n_corr=None):
+
+        """
+        Checks whether number of an inequivalent correlated shell is valid.
+
+        :param n_corr: number of inequivalent correlated shell to be checked
+        :type n_corr: int
+
+        :return: bool, True if num_corr is valid otherwise it is False.
+        """
+        if not self.n_inequiv_corr_shells is None:
+
+            return  (isinstance(n_corr, int) and
+                     0 <= n_corr < self.n_inequiv_corr_shells)
+        elif not self.__class__.n_inequiv_corr_shells is None:
+
+            return  (isinstance(n_corr, int) and
+                     0 <= n_corr < self.__class__.n_inequiv_corr_shells)
+        else:
+            self.report_error("Can't check if valid inequivalent shell!")
 
 
 class Save(Report):

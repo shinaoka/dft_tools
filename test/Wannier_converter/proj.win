@@ -1,0 +1,33 @@
+
+# Test for reading projections from *.win file
+
+# Tough example of projections, it 
+# is very unrealistic but combines different 
+# conventions for defining projectons and 
+# is valueable for benchmarks 
+! test is also done if all formats of comments are treated 
+! properly (everything after ! or # should be neglected )
+
+
+begin projections
+As:sp3
+Dummy_atom:sp3-1 ! projections  for dummy atom 
+dUmmy_atom:sp3-2 # are equivalent to As atom
+duMMy_atom:sp3-3 
+duMMy_Atom:sp3-4
+Cu:d   ! Cu is equivalent to Cu1 and Cu2 
+Cu1:dxy:z=0,0,1
+Cu2:dxy;dxz;dyz;dx2-y2;dz2:z=0,0,1
+Cu1:dz2:z=0,0,1
+
+Cu3:l=2,mr=2,4
+cu1:dyz:z=0,0,1
+Cu3:l=2,mr=1,3,5 ! bum bum
+f=0.25,0.25,0.25:s 
+Cu1:dx2-y2:z=0,0,1 ! bum
+f=-0.25,-0.25,-0.25:s # bum bum bum
+Fe:s;p;d
+O:p
+O1:px;py;pz
+CU1:dxz:z=0,0,1
+end projections
