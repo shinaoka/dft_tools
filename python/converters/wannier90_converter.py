@@ -3,8 +3,7 @@ import math
 import cStringIO
 from os.path import isfile
 from os import  remove
-from ast import literal_eval
-from datetime import date
+from copy import deepcopy
 
 # pytriqs
 from pytriqs.utility import mpi
@@ -12,7 +11,7 @@ from pytriqs.archive import HDFArchive
 from pytriqs.applications.dft.U_matrix import  spherical_to_cubic
 from pytriqs.applications.dft.converters.converter_tools import ConverterTools
 from pytriqs.applications.dft.messaging import Check, Save
-#from pytriqs.applications.dft.
+from pytriqs.applications.dft.wannier_converter_dataIO import AsciiIO
 
 
 class Wannier90Converter(Check,ConverterTools,Save):
@@ -120,7 +119,8 @@ class Wannier90Converter(Check,ConverterTools,Save):
                                         will be stored  in filename.h5
             :type filename: 			str
 
-            :param extra_par_file:      text file with some extra parameters (num_zero, verbosity, T)
+            :param extra_par_file:      text file with some extra parameters (num_zero, verbosity).
+                                        If not set then default value will be used,
             :type  extra_par_file:      str
 
             :param dft_subgrp:			Name of the directory in filename.h5 where input
@@ -133,6 +133,7 @@ class Wannier90Converter(Check,ConverterTools,Save):
         super(Wannier90Converter, self).__init__()
 
         #********************* Sorted fields **********************************
+
 
         self.FULL_H_R = None # H_R
 
@@ -148,6 +149,7 @@ class Wannier90Converter(Check,ConverterTools,Save):
 
         self.Vector_R = None # vector with Wigner-Seitz grid points for Fourier transformation H_R -> H_k
 
+        self.chemical_potential=None # initial guess for the chemical potential
 
         self.corr_shells = None # all correlated shells (also symmetry equivalent)
 
@@ -159,11 +161,15 @@ class Wannier90Converter(Check,ConverterTools,Save):
 
         self.inequiv_to_corr = None # mapping: inequivalent correlated shell -> correlated shell
 
+        self.n_corr_shells = None # number of all correlated shells (both inequivalent and equivalent)
+
         self.n_k = None # total number of k-points
 
         self.n_inequiv_corr_shells = None # number of inequivalent correlated shells
 
         self.n_orbitals = None # number of bands used to produce MLWF for each spin channel and each k-point
+
+        self.n_shells= None  # number of all shells (both correlated and non-correlated)
 
         self.proj_mat = None # projectors for DMFT calculations
 
@@ -178,11 +184,64 @@ class Wannier90Converter(Check,ConverterTools,Save):
 
         self._R_sym = None # symmetry operations
 
+        # data structure with all states implemented in Wannier 90 which are used as an initial guess for MLWF,
+        # each entry in the list has the following entries
+        # l   angular momentum, (but for hybridisation it just  a label with negative value)
+        # mr  number of state for the particular l
+        # name label of state or group of states
+        # dim -- number of states for the particular initial guess
+        # corr -- correlated or not correlated
+
+        # labels s,p, etc. for states taken from Wannier90 user guide
+        # we want to project on orbitals with pure correlated or non-correlated character,
+        # orbitals like sp3d are not valid
+
+        self._all_states=[{"l":0,"mr":1,"name":"s","dim":1},
+
+                    {"l":1,"mr":None,"name":"p","dim":3},
+                    {"l":1,"mr":1,"name":"pz","dim":1},
+                    {"l":1,"mr":2,"name":"px","dim":1},
+                    {"l":1,"mr":3,"name":"py","dim":1},
+
+                    {"l":2,"mr":None,"name":"d","dim":5},
+                    {"l":2,"mr":1,"name":"dz2","dim":1},
+                    {"l":2,"mr":2,"name":"dxz","dim":1},
+                    {"l":2,"mr":3,"name":"dyz","dim":1},
+                    {"l":2,"mr":4,"name":"dx2-y2","dim":1},
+                    {"l":2,"mr":5,"name":"dxy","dim":1},
+
+                    {"l":3,"mr":None,"name":"f","dim":7},
+                    {"l":3,"mr":1,"name":"fz3","dim":1},
+                    {"l":3,"mr":2,"name":"fxz2","dim":1},
+                    {"l":3,"mr":3,"name":"fyz2","dim":1},
+                    {"l":3,"mr":4,"name":"fxyz","dim":1},
+                    {"l":3,"mr":5,"name":"fz(x2-y2)","dim":1},
+                    {"l":3,"mr":6,"name":"fx(x2-3y2)","dim":1},
+                    {"l":3,"mr":7,"name":"fy(3x2-y2)","dim":1},
+
+                    {"l":-1,"mr":None,"name":"sp","dim":2},
+                    {"l":-1,"mr":1,"name":"sp-1","dim":1},
+                    {"l":-1,"mr":2,"name":"sp-2","dim":1},
+
+                    {"l":-2,"mr":None,"name":"sp2","dim":3},
+                    {"l":-2,"mr":1,"name":"sp2-1","dim":1},
+                    {"l":-2,"mr":2,"name":"sp2-2","dim":1},
+                    {"l":-2,"mr":3,"name":"sp2-3","dim":1},
+
+                    {"l":-3,"mr":None,"name":"sp3","dim":4},
+                    {"l":-3,"mr":1,"name":"sp3-1","dim":1},
+                    {"l":-3,"mr":2,"name":"sp3-2","dim":1},
+                    {"l":-3,"mr":3,"name":"sp3-3","dim":1},
+                    {"l":-3,"mr":4,"name":"sp3-4","dim":1}
+                    ]
+
         self._all_read = None # whether or not data needed in rerun is in the hdf file
 
         self._disentangled_spin = None # defines disentanglement separately for each spin
 
         self._dummy_projectors_used = False # defines whether or not dummy projectors are in use
+
+        self._extra_par={"num_zero":0.0001,"verbosity":2} # definition of parameters from extra_par_file
 
         self._extra_par_file = None # name of file with some extra parameters (num_zero, verbosity, T)
 
@@ -190,6 +249,12 @@ class Wannier90Converter(Check,ConverterTools,Save):
         #                       filename.h5, filename.win, filename_up.win,
         #                       filename_down.win, filename.chk.fmt,
         #                       filename_up.chk.fmt, filename_down.chk.fmt
+
+        self._win_par={ "fermi_energy": None, # definition of parameters from win file needed by converter
+                        "mp_grid": None,
+                        "hr_plot":None,
+                        "spinors":False,
+                        "projections":None}
 
         self._name2SpinChannel = None  # defines mapping between name of file and spin channel
 
@@ -211,7 +276,7 @@ class Wannier90Converter(Check,ConverterTools,Save):
 
         self._verbosity = None # defines level of output verbosity
 
-        self.__ham_nkpt = None # vector with three elements which defines k-point grid
+        self.ham_nkpt = None # vector with three elements which defines k-point grid
 
 
         if  isinstance(filename, str):
@@ -223,6 +288,8 @@ class Wannier90Converter(Check,ConverterTools,Save):
 
         if  isinstance(extra_par_file, str):
             self._extra_par_file = extra_par_file
+        elif extra_par_file is None:
+            self.make_verbose_statement("Default values will be used")
         else:
             self.report_error("Give a string for keyword 'extra_par_file' so that additional  "
                               "parameters can be read!")
@@ -234,10 +301,11 @@ class Wannier90Converter(Check,ConverterTools,Save):
                               which results from sumk_dft will be kept!""")
 
 
-    def convert_dft_input(self):
+    def convert_dft_input(self,corr_shells=None):
         """
             Reads the input files, and stores the data in the HDF file. Checks if we have rerun or fresh calculation,
             In case of rerun checks if parameters changed (if crucial parameters changed it will stop).
+
 
              **Parameters**::
                 * Parameters read from the extra_input,txt text file
@@ -283,22 +351,13 @@ class Wannier90Converter(Check,ConverterTools,Save):
 
                                         * irep: dummy parameter set to 0
 
-                                    Parameter corr_shells is calculated form the following blocks:
+                                    Parameter corr_shells is calculated form the following block:
 
                                        Begin Projections
                                         ---------------
                                         ---------------
                                         ---------------
                                        End Projections
-
-
-                                       and
-
-                                       begin atoms_frac
-                                        ---------------
-                                        ---------------
-                                        ---------------
-                                       end atoms_frac
 
                                     in filename.win
 
@@ -325,21 +384,13 @@ class Wannier90Converter(Check,ConverterTools,Save):
 
                                     * dim: number of orbitals for the particular shell
 
-                                Parameter shells is calculated form the following blocks:
+                                Parameter shells is calculated form the following block:
 
                                        Begin Projections
                                         ---------------
                                         ---------------
                                         ---------------
                                        End Projections
-
-                                       and
-
-                                       begin atoms_frac
-                                        ---------------
-                                        ---------------
-                                        ---------------
-                                       end atoms_frac
 
                                 in filename.win
 
@@ -376,65 +427,22 @@ class Wannier90Converter(Check,ConverterTools,Save):
 
                      While reading keywords from filename,win Fortran convention is honoured
                     (cases of  letters do not matter,'!' starts a comment).
+
+        :param corr_shells: user defined correlated shells, in some rare cases it
+                       may happen that orbitals which are usually considered non-correlated states
+                       should  be treated as correlated states,
+                       like for example O states in RbO2 can be treated as correlated states
+                       (see .Phys. Rev. B 80, 140411 (2009) for more details).
+                       This parameter should be set by user only in such non-standard situation. If this
+                       parameter is not set (it has its default value None), then shells and
+                       corr_shells will be constructed according to standard convention:
+                       s,p states are non-correlated states
+                       d,f states are correlated states
+                       If user provided shells are different than None then shell and corr_shells  have
+                       the same value.
+
+        :type corr_shells: list of dictionaries
         """
-
-        #********************* read data from input files             **********************************
-
-
-        #********************* validity test for the input parameters **********************************
-        if isinstance(num_zero, float) and 1.0>num_zero>0.0:
-            self._num_zero = num_zero
-        else:
-            self.report_error("Numerical zero is wrongly defined!")
-
-        if isinstance(density_required, float):
-            self.density_required = density_required
-        else:
-            self.report_error("Define  required density!")
-
-        if (isinstance(ham_nkpt, list) and len(ham_nkpt) == 3 and
-        all([isinstance(ham_nkpt[i], int) and ham_nkpt[i]>0 for i in range(len(ham_nkpt))])):
-            self.__ham_nkpt = ham_nkpt
-        else:
-            self.report_error("You have to define a proper k-mesh!")
-
-        if verbosity == 2:
-            self._verbosity = verbosity
-        else:
-            self.make_statement("No additional output will be printed out from lattice module.")
-            self._verbosity = "None"
-
-
-        # Determine the number of inequivalent correlated shells, has to be known for further reading...
-        self.n_inequiv_corr_shells, self.corr_to_inequiv, self.inequiv_to_corr=self.det_shell_equivalence(corr_shells=self.corr_shells)
-
-        # parameters needed by both rerun and fresh run
-        self.n_k = self.__ham_nkpt[0] * self.__ham_nkpt[1] * self.__ham_nkpt[2] #number of k-points
-
-        self._name2SpinChannel={self._filename+"_up":0,
-                                self._filename+"_down":1,
-                                self._filename:0 }
-
-        self._disentangled_spin={i: False for i in range(self._n_spin)}
-
-        self._parameters={"num_zero":self._num_zero,
-                          "verbosity":self._verbosity,
-                          "ham_nkpt":self.__ham_nkpt}
-
-        # Rotation matrices: complex harmonics to cubic harmonics for each inequivalent correlated shell
-        # TO BE REFORMULATED !!!!
-        # self.T=[]
-        # if isinstance(T,list) and len(T)==self.n_inequiv_corr_shells:
-        #     for i in range(self.n_inequiv_corr_shells):
-        #         self._n_corr=i #number of inequivalent correlated shell
-        #         self.T.append(self.check_T_n_corr(T_array=T[i]))
-        #         if self.T[i] is None: self.T[i]=spherical_to_cubic(l=self.corr_shells[self.inequiv_to_corr[i]]["l"])
-        #     self._n_corr=None
-        # else:
-        #     self.report_warning("Default rotation matrix from complex harmonics to cubic harmonics will be used.")
-        #     for i in range(self.n_inequiv_corr_shells):
-        #         self.T.append(spherical_to_cubic(l=self.corr_shells[self.inequiv_to_corr[i]]["l"]))
-
 
         #*********************check data from the previous run **********************************
         things_to_load=["n_k", "SP", "SO", "density_required", "shells","n_shells",
@@ -450,7 +458,45 @@ class Wannier90Converter(Check,ConverterTools,Save):
 
         if not self._all_read:  # calculation from scratch
 
-            #delete content of hdf file if it is invalid and start to  write file from scratch
+            # non standard shells
+            if not corr_shells is None:
+                for n_corr in range(len(corr_shells)):
+                    self.check_shell(x=corr_shells[n_corr],
+                                     t=["atom","sort", "l", "dim", "SO", "irep" ])
+                self.corr_shells=corr_shells
+                self.shells=deepcopy(self.corr_shells)
+                for n_shell in range(len(self.shells)):
+                    del self.shells[n_shell]["SO"]
+                    del self.shells[n_shell]["irep"]
+
+            self._read_win_file()
+            # if not (isinstance(ham_nkpt, list) and len(ham_nkpt) == 3 and
+            #     all([isinstance(ham_nkpt[i], int) and ham_nkpt[i]>0 for i in range(len(ham_nkpt))])):
+            #     self.report_error("You have to define a proper k-mesh!")
+
+            # calculate all other parameters
+            self.n_corr_shells=len(self.corr_shells)
+            self.n_shells=len(self.shells)
+
+            # Determine the number of inequivalent correlated shells, has to be known for further reading...
+            self.n_inequiv_corr_shells, self.corr_to_inequiv, self.inequiv_to_corr=self.det_shell_equivalence(corr_shells=self.corr_shells)
+
+            # parameters needed by both rerun and fresh run
+            self.n_k = self.ham_nkpt[0] * self.ham_nkpt[1] * self.ham_nkpt[2] #number of k-points
+
+            self._name2SpinChannel={self._filename+"_up":0,
+                                    self._filename+"_down":1,
+                                    self._filename:0 }
+
+            self._disentangled_spin={i: False for i in range(self._n_spin)}
+
+            self._parameters={"num_zero":self._num_zero,
+                              "verbosity":self._verbosity,
+                              "ham_nkpt":self.ham_nkpt}
+
+            # delete content of hdf file, since some parameters were not found
+            # it is invalid and start to  write file from scratch
+
             if mpi.is_master_node():
                 ar = HDFArchive(self._filename+".h5","w")
                 del ar
@@ -463,7 +509,7 @@ class Wannier90Converter(Check,ConverterTools,Save):
                                     "sort":self.corr_shells[n_corr]["sort"],
                                     "rot_mat":numpy.zeros((self.corr_shells[n_corr]['dim'],
                                                           self.corr_shells[n_corr]['dim']),
-                                                            numpy.complex_),
+                                                            numpy.complex),
                                     "eig":numpy.zeros(self.corr_shells[n_corr]['dim'],dtype=numpy.float)})
 
                 #R_sym is  data structure to store symmetry operation, it has a form of list,
@@ -474,6 +520,7 @@ class Wannier90Converter(Check,ConverterTools,Save):
                 #   "eig":      eigenvalues which correspond to the particular correlated site
 
             self.__h_to_triqs()
+            self._get_density_required()
             self._produce_projectors()
 
             self.proj_mat=mpi.bcast(self.proj_mat)
@@ -538,6 +585,333 @@ class Wannier90Converter(Check,ConverterTools,Save):
         mpi.barrier()
 
 
+    def _read_win_file(self):
+
+
+        """
+        Extracts parameters from win file.
+
+        """
+        reader=AsciiIO()
+
+        one_channel = False
+
+        try:
+
+            with open(self._filename+".win") as input_file:
+                one_channel = True
+                input_file.close()
+
+        except IOError:
+
+            try:
+
+                with open(self._filename+"up.win") as input_file_1, open(self._filename+"down.win") as input_file_2:
+                    input_file_1.close()
+                    input_file_2.close()
+
+            except IOError:
+
+                self.report_error("Couldn't find any of the following obligatory files (option 1) or 2) ): "+
+                                  "1) "+self._filename+".win or"+
+                                  "2) "+self._filename+"up.win and "+self._filename+"down.win " )
+
+        if one_channel:
+
+            reader.read_ASCII_fortran_file(file_to_read=self._filename+".win",default_dic=self._win_par)
+
+            self._get_spinors()
+            self.SP=0
+
+        else:
+            reader.read_ASCII_fortran_file(file_to_read=self._filename+"up.win",default_dic=self._win_par)
+            self.SO=0
+            self.SP=1
+
+        # **** calculate parameters for converter based on parameters from win file
+        if self.shells is None:
+            self._get_shells()
+        self._get_T()
+        self._get_ham_nkpt()
+        self._get_chemical_potential()
+
+
+        # **** read extra parameters ****
+        try:
+            with open(self._extra_par_file) as input_file:
+                extra_file=True
+                input_file.close()
+        except IOError:
+                extra_file=False
+
+        if extra_file:
+            reader.read_ASCII_file( file_to_read=self._extra_par_file,
+                                    default_dic=self._extra_par,
+                                    variable_list_string_val=[])
+        else:
+            self.make_verbose_statement("Default values of verbosity and num_zero will be used.")
+
+        # set all extra parameters
+        try:
+            self._num_zero=float(self._extra_par["num_zero"])
+        except ValueError:
+            self.report_error("Wrong type of parameter num_zero!")
+
+        try:
+            self._verbosity=int(self._extra_par["verbosity"])
+        except ValueError:
+            self.report_error("Wrong type of parameter verbosity!")
+
+        # check if extra parameters have reasonable values
+        if not  1.0>self._num_zero>0.0:
+            self.report_error("Numerical zero is wrongly defined!")
+
+        if self._verbosity != 2:
+            self.make_statement("No additional output will be printed out from lattice module.")
+            self._verbosity = "None"
+
+
+    def _get_spinors(self):
+        """
+        Calculates spinors from data which was extracted from *.win file. Sets value of SO.
+
+        """
+
+        if not (self._win_par["spinors"].lower() == "true"  or
+                self._win_par["spinors"].lower()=="false" or
+                self._win_par["spinors"].lower() == "t" or
+                self._win_par["spinors"].lower()=="f"):
+            self.report_error("Invalid value of spinors!")
+
+        spinors= (self._win_par["spinors"][0].upper()+self._win_par["spinors"][1:].lower())=="True"
+
+        if spinors:
+            self.SO=1
+        else:
+            self.SO=0
+
+
+    def _get_chemical_potential(self):
+
+        """
+        Calculates initial guess for chemical potential from data which was extracted from *.win file.
+
+        """
+
+        try:
+           self.chemical_potential=float(self._win_par["fermi_energy"])
+        except ValueError:
+            self.report_error("Invalid value of fermi_energy! ")
+
+
+    def _get_ham_nkpt(self):
+        """
+        Calculates vectors with 3 elements which defines k-mesh
+        from data which was extracted from *.win file.
+
+        """
+
+        temp_mp_grid=self._win_par["mp_grid"].split()
+        self.ham_nkpt=[]
+
+        try:
+            for i in range(len(temp_mp_grid)): self.ham_nkpt.append(int(temp_mp_grid[i]))
+        except ValueError:
+            self.report_error("Invalid value of mp_grid!")
+
+
+    def _get_shells(self):
+        """
+
+        Calculates shells and corr_shells basing on
+        data which was extracted from *.win file.
+        Value of "sort" keyword  is found later from HR.
+
+        """
+
+        lines=self._win_par["projections"].split("\n")
+        lines.pop(len(lines)-1) # remove \n from the last line
+        self.shells=[]
+        atoms={}
+        num_atom=-1
+        if not ":" in lines[0]: lines.pop(0) # in case first line in the block is [units] remove it
+        for line in lines: # each line is a different atom, but atoms can repeat themselves
+            label=line[:line.find(":")]
+            begin=line.find(":")+1  # here we add 1 because we want content after
+
+            if ":" in line[begin:]:
+                end=line[begin:].find(":")+begin
+            else:
+                end=len(line)
+
+            projections=line[begin:end].split(";")
+
+            i=0
+            if not label in atoms:
+                num_atom+=1
+                res=self._get_proj_l(input_proj=projections.pop(0))
+                temp_shells=[{"atom":num_atom,"dim":res["dim"],"l":res["l"]}]
+                atoms[label]={"num_atom":num_atom}
+                for proj in projections:
+                    res=self._get_proj_l(input_proj=proj)
+                    l=res["l"]
+                    dim=res["dim"]
+                    found=False
+                    for i,item in enumerate(temp_shells):
+                        if l == item["l"]:
+                            item["dim"]+=dim
+                            found = True
+                            break
+                    if not found: # different shell on the same atom, with different l
+                        temp_shells.append({"atom":num_atom,"dim":dim,"l":l})
+
+                self.shells.extend(temp_shells)
+
+            elif label in atoms:
+
+                local_num_atom=atoms[label]["num_atom"]
+                for proj in projections:
+                    res=self._get_proj_l(input_proj=proj)
+                    l=res["l"]
+                    dim=res["dim"]
+                    found=False
+                    for i,item in enumerate(self.shells):
+                        if l == item["l"] and item["atom"]==local_num_atom:
+                            item["dim"]+=dim
+                            found=True
+                            break
+                    if not found: # different shell on the same atom, with different l
+                        self.shells.append({"atom":local_num_atom, "dim":dim,"l":l})
+
+        for state in self.shells:
+
+            if state["dim"]>(state["l"]*2+1):
+                self.report_error("Wrong structure of shells!")
+
+
+    def _get_corr_shells(self):
+
+        """
+
+        Calculates corr_shells from shells.
+
+        """
+
+        if self.shells is None: self.report_error("Shells not set yet. They are needed to calculate corr_shells!")
+        self.corr_shells=[]
+        for state in self.shells:
+            if state["l"]==2 or state["l"]==3:
+                corr_state=deepcopy(state)
+                corr_state["SO"]=self.SO
+                corr_state["irep"]=0
+                self.corr_shells.append(corr_state)
+
+
+    def _get_proj_l(self,input_proj=None):
+        """
+
+        :param input_proj: initial guess for MLWF to be analysed
+        :type input_proj: string
+
+        :return: l, mr,dim for  the given initial guess for MLWF
+        :rtype : dictionary
+        """
+
+        proj_all_entries=input_proj.replace(","," ").replace("="," ").lower().split()
+        l=None
+        dim=0
+        indx=0
+        if not isinstance(input_proj,str):
+            self.report_error("Invalid initial projection!")
+
+        # case: l=foo1, mr=foo2,foo3,...
+        if len(proj_all_entries)>=4:
+
+            if "l" in proj_all_entries:
+                indx=proj_all_entries.index("l")+1
+                if indx==len(proj_all_entries): self.report_error("Invalid initial projection!")
+
+                # convert value l from string to int
+                try:
+                    l=int(proj_all_entries[indx])
+                except ValueError:
+                    self.report_error("Invalid value of l!")
+
+            else:
+                self.report_error("Invalid initial projection!")
+
+            indx+=1
+            if not "mr" == proj_all_entries[indx]:
+
+                self.report_error("Invalid initial projection! No  mr keyword found!")
+
+            mr_list=proj_all_entries[indx+1:] # stores all mr values
+
+            # convert string elements to int values
+            try:
+                for mr_indx in range(len(mr_list)):
+                    mr_list[mr_indx]= int(mr_list[mr_indx])
+            except ValueError:
+                self.report_error("Invalid value of mr!")
+
+            for mr_item in mr_list:
+
+                mr_found=False
+
+                for state in self._all_states:
+
+                    if state["l"] == l and state["mr"] == mr_item:
+                        dim+= state["dim"]
+                        mr_found=True
+                        break
+
+                if not mr_found:
+                     self.report_error("Invalid value of mr!")
+
+        # case: l=foo
+        elif len(proj_all_entries)==2:
+            if "l" in proj_all_entries:
+                indx=proj_all_entries.index("l")+1
+                if indx==len(proj_all_entries): self.report_error("Invalid initial projection!")
+                l=proj_all_entries[indx]
+            else:
+                self.report_error("Invalid initial projection!")
+
+            for state in self._all_states:
+
+                if state["l"] == l and  state["mr"] is None:
+                    dim = state["dim"]
+                    break
+
+            if dim ==0:
+                self.report_error("Invalid value of l!")
+
+        # case: foo
+        elif len(proj_all_entries)==1:
+
+            for state in self._all_states:
+                if state["name"]==proj_all_entries[0]:
+                    l=state["l"]
+                    dim=state["dim"]
+                    break
+
+            if dim==0:
+                self.report_error("Invalid initial projection!")
+
+        else:
+             self.report_error("Invalid initial projection!")
+
+        return  {"l":l,"dim":dim}
+
+
+    def _get_T(self):
+        pass
+
+
+    def _get_required_density(self):
+        pass
+
+
     def __h_to_triqs(self):
         """
         Reads  HR file calculated by wannier90  and calculates Hk and symmetry operations.
@@ -579,45 +953,45 @@ class Wannier90Converter(Check,ConverterTools,Save):
 
 
         # 2) construct symmetry operators
-        local_shells=[ {} for n in range(self.n_shells)]
-        total_orb=0
-        for ish in range(self.n_shells):
-
-            n_orb=self.shells[ish]["dim"]
-            temp_eig,temp_rot_mat=numpy.linalg.eigh(ham_r[total_orb:total_orb+n_orb,total_orb:total_orb+n_orb])
-
-            #sort eigenvectors and eigenvalues
-            temp_indx = temp_eig.argsort()
-            local_shells[ish]["eig"]=temp_eig[temp_indx]
-            local_shells[ish]["rot_mat"]=temp_rot_mat[:,temp_indx]
-
-            #check if shell is a correlated shell if so write eigenvectors to rotation which corresponds to it
-            for icrsh in range(self.n_corr_shells):
-
-                if self.compare_shells(shell=self.shells[ish],
-                                       corr_shell=self.corr_shells[icrsh]):
-
-                    self._R_sym[icrsh]["eig"]= local_shells[ish]["eig"]
-                    self._R_sym[icrsh]["rot_mat"]=local_shells[ish]["rot_mat"]
-                    break
-
-            #in case of spin-polarised calculation we run only through "up"
-            # block of ham_r, it is ok because we look for spacial symmetry here
-            total_orb+=n_orb
-
-        #check if initial projections from *win file are consistent with shells provided in the input file
-        for ish1 in range(self.n_shells):
-            for ish2 in range(self.n_shells):
-
-                #equivalent shell found
-                if self.is_shell(self.shells[ish1], self.shells[ish2]):
-
-                    if  self._num_zero < numpy.min(numpy.abs(local_shells[ish1]["eig"]-local_shells[ish2]["eig"])):
-                         self.report_error("Wrong block structure of input Hamiltonian,"
-                                           " correct it please (maybe num_zero parameter is set too low?)!")
-                    break
-
-        del local_shells
+        # local_shells=[ {} for n in range(self.n_shells)]
+        # total_orb=0
+        # for ish in range(self.n_shells):
+        #
+        #     n_orb=self.shells[ish]["dim"]
+        #     temp_eig,temp_rot_mat=numpy.linalg.eigh(ham_r[total_orb:total_orb+n_orb,total_orb:total_orb+n_orb])
+        #
+        #     #sort eigenvectors and eigenvalues
+        #     temp_indx = temp_eig.argsort()
+        #     local_shells[ish]["eig"]=temp_eig[temp_indx]
+        #     local_shells[ish]["rot_mat"]=temp_rot_mat[:,temp_indx]
+        #
+        #     #check if shell is a correlated shell if so write eigenvectors to rotation which corresponds to it
+        #     for icrsh in range(self.n_corr_shells):
+        #
+        #         if self.compare_shells(shell=self.shells[ish],
+        #                                corr_shell=self.corr_shells[icrsh]):
+        #
+        #             self._R_sym[icrsh]["eig"]= local_shells[ish]["eig"]
+        #             self._R_sym[icrsh]["rot_mat"]=local_shells[ish]["rot_mat"]
+        #             break
+        #
+        #     #in case of spin-polarised calculation we run only through "up"
+        #     # block of ham_r, it is ok because we look for spacial symmetry here
+        #     total_orb+=n_orb
+        #
+        # #check if initial projections from *win file are consistent with shells provided in the input file
+        # for ish1 in range(self.n_shells):
+        #     for ish2 in range(self.n_shells):
+        #
+        #         #equivalent shell found
+        #         if self.is_shell(self.shells[ish1], self.shells[ish2]):
+        #
+        #             if  self._num_zero < numpy.min(numpy.abs(local_shells[ish1]["eig"]-local_shells[ish2]["eig"])):
+        #                  self.report_error("Wrong block structure of input Hamiltonian,"
+        #                                    " correct it please (maybe num_zero parameter is set too low?)!")
+        #             break
+        #
+        # del local_shells
 
         if self.total_MLWF!=sum([ sh['dim'] for sh in self.shells ]):
 
@@ -625,7 +999,7 @@ class Wannier90Converter(Check,ConverterTools,Save):
 
         self.rot_mat = [numpy.zeros((self.corr_shells[icrsh]['dim'],
                                 self.corr_shells[icrsh]['dim']),
-                               numpy.complex_) for icrsh in range(self.n_corr_shells)]
+                               numpy.complex) for icrsh in range(self.n_corr_shells)]
         for icrsh in range(self.n_corr_shells):
             self.rot_mat[icrsh]=numpy.dot(self._R_sym[icrsh ]["rot_mat"],
             self._R_sym[self.corr_to_inequiv[icrsh]]["rot_mat"].conjugate().transpose())
@@ -635,11 +1009,10 @@ class Wannier90Converter(Check,ConverterTools,Save):
                               for isp in range(self._n_spin)] for ikpt in range(self.n_k)]
 
         self.__make_k_point_mesh()
-        ikpt = -1
         imag = 1j
         twopi = 2 * numpy.pi
 
-        total_n_kpt = self.__ham_nkpt[0] * self.__ham_nkpt[1] * self.__ham_nkpt[2]
+        total_n_kpt = self.ham_nkpt[0] * self.ham_nkpt[1] * self.ham_nkpt[2]
 
         for ikpt in range(total_n_kpt):
             for n_s in range(self._n_spin):
@@ -899,60 +1272,60 @@ class Wannier90Converter(Check,ConverterTools,Save):
         Makes uniformly distributed k-point mesh.
 
         """
-        if self.__ham_nkpt[0] % 2:
-            i1min = - (self.__ham_nkpt[0] - 1) / 2
-            i1max = (self.__ham_nkpt[0] - 1) / 2
+        if self.ham_nkpt[0] % 2:
+            i1min = - (self.ham_nkpt[0] - 1) / 2
+            i1max = (self.ham_nkpt[0] - 1) / 2
         else:
-            i1min = -(self.__ham_nkpt[0] / 2 - 1)
-            i1max = self.__ham_nkpt[0] / 2
+            i1min = -(self.ham_nkpt[0] / 2 - 1)
+            i1max = self.ham_nkpt[0] / 2
 
-        if self.__ham_nkpt[1] % 2:
-            i2min = - (self.__ham_nkpt[1] - 1) / 2
-            i2max = (self.__ham_nkpt[1] - 1) / 2
+        if self.ham_nkpt[1] % 2:
+            i2min = - (self.ham_nkpt[1] - 1) / 2
+            i2max = (self.ham_nkpt[1] - 1) / 2
         else:
-            i2min = -(self.__ham_nkpt[1] / 2 - 1)
-            i2max = self.__ham_nkpt[1] / 2
+            i2min = -(self.ham_nkpt[1] / 2 - 1)
+            i2max = self.ham_nkpt[1] / 2
 
-        if self.__ham_nkpt[2] % 2:
-            i3min = - (self.__ham_nkpt[2] - 1) / 2
-            i3max = (self.__ham_nkpt[2] - 1) / 2
+        if self.ham_nkpt[2] % 2:
+            i3min = - (self.ham_nkpt[2] - 1) / 2
+            i3max = (self.ham_nkpt[2] - 1) / 2
 
         else:
-            i3min = -(self.__ham_nkpt[2] / 2 - 1)
-            i3max = self.__ham_nkpt[2] / 2
+            i3min = -(self.ham_nkpt[2] / 2 - 1)
+            i3max = self.ham_nkpt[2] / 2
         dimensions = 3
         self.k_point_mesh = numpy.zeros((self.n_k, dimensions), dtype=float)
         n_kpt = 0
         for i1 in range(i1min, i1max + 1):
             for i2 in range(i2min, i2max + 1):
                 for i3 in range(i3min, i3max + 1):
-                    self.k_point_mesh[n_kpt, :] = [float(i1) / float(self.__ham_nkpt[0]),
-                                                    float(i2) / float(self.__ham_nkpt[1]),
-                                                    float(i3) / float(self.__ham_nkpt[2])]
+                    self.k_point_mesh[n_kpt, :] = [float(i1) / float(self.ham_nkpt[0]),
+                                                    float(i2) / float(self.ham_nkpt[1]),
+                                                    float(i3) / float(self.ham_nkpt[2])]
                     n_kpt += 1
 
 
-    def is_shell(self,shell_1st=None,shell_2nd=None):
-        """
-
-        Checks if shell_1st is equal to  shell_2nd
-
-        :param shell_1st: first shell to compare
-        :type shell_1st: int
-
-        :param shell_2nd:  second shell to compare
-        :type shell_2nd: int
-
-        :return: True if shell_1st is shell_2nd otherwise False
-
-        """
-
-        if not self.check_shell(shell_1st,t=self.__class__.shells_keywords):
-            self.report_error("Shell was expected!")
-        if not self.check_shell(shell_2nd,t=self.__class__.shells_keywords):
-            self.report_error("Shell was expected!")
-
-        return cmp(shell_1st,shell_2nd)==0
+    # def is_shell(self,shell_1st=None,shell_2nd=None):
+    #     """
+    #
+    #     Checks if shell_1st is equal to  shell_2nd
+    #
+    #     :param shell_1st: first shell to compare
+    #     :type shell_1st: int
+    #
+    #     :param shell_2nd:  second shell to compare
+    #     :type shell_2nd: int
+    #
+    #     :return: True if shell_1st is shell_2nd otherwise False
+    #
+    #     """
+    #
+    #     if not self.check_shell(shell_1st,t=self.__class__.shells_keywords):
+    #         self.report_error("Shell was expected!")
+    #     if not self.check_shell(shell_2nd,t=self.__class__.shells_keywords):
+    #         self.report_error("Shell was expected!")
+    #
+    #     return cmp(shell_1st,shell_2nd)==0
 
 
     def compare_shells(self,shell=None, corr_shell=None):
@@ -1053,7 +1426,7 @@ class Wannier90Converter(Check,ConverterTools,Save):
                             from Wannier90  for one particular spin channel
         :type filename: str
         """
-        read_chkpt.set_seedname(filename)
+        #read_chkpt.set_seedname(filename)
 
         err_msg="Dummy projectors (identity matrices) will be used in the calculation."
         " U_matrix, U_matrix_opt,ndimwin, U_full will be set to None"
@@ -1062,7 +1435,7 @@ class Wannier90Converter(Check,ConverterTools,Save):
             #check if we can open file
             f = open(filename+".win","rb")
             f.close()
-            read_chkpt.param_read()
+            #read_chkpt.param_read()
         except IOError:
            self.report_warning("Opening file %s.win failed. "%filename+err_msg)
            self._produce_dummy_projectors()
@@ -1072,85 +1445,85 @@ class Wannier90Converter(Check,ConverterTools,Save):
             #check if we can open file
             f = open(filename+".chk","rb")
             f.close()
-            read_chkpt.param_read_chkpt()
+            #read_chkpt.param_read_chkpt()
         except IOError:
             self.report_warning("Opening file %s.chk failed. "%filename+err_msg)
             self._produce_dummy_projectors()
             return
 
-        if self.n_k != read_chkpt.get_num_kpts():
-            self.report_error("Different number of input k-points and number of kpoints in %s.win! "
-                              %filename)
-        elif self.total_MLWF  != read_chkpt.get_num_wann():
-            self.report_error("Different number of Wannier orbitals in %s_hr.dat and in %s.win! "
-                              %(filename,filename))
+        # if self.n_k != read_chkpt.get_num_kpts():
+        #     self.report_error("Different number of input k-points and number of kpoints in %s.win! "
+        #                       %filename)
+        # elif self.total_MLWF  != read_chkpt.get_num_wann():
+        #     self.report_error("Different number of Wannier orbitals in %s_hr.dat and in %s.win! "
+        #                       %(filename,filename))
 
         #Prints out summary of what was found in filename.win and filename.chk files.
-        if self._verbosity==2:
-            read_chkpt.summary()
+        # if self._verbosity==2:
+        #     read_chkpt.summary()
 
-        disentanglement=self.__class__._fortran_boolean[read_chkpt.get_have_disentangled().strip()]
+        #disentanglement=self.__class__._fortran_boolean[read_chkpt.get_have_disentangled().strip()]
 
-        if filename in self._name2SpinChannel:
-            self._disentangled_spin[self._name2SpinChannel[filename]]=disentanglement
-        else:
-            self.report_error("Invalid name of file!")
+        # if filename in self._name2SpinChannel:
+        #     self._disentangled_spin[self._name2SpinChannel[filename]]=disentanglement
+        # else:
+        #     self.report_error("Invalid name of file!")
 
         #Writes transformation matrix between Bloch states and smooth  pseudo- Bloch states to the self._u_matrix_opt.
-        if disentanglement:
-
-            read_chkpt.write_ndimwin()  #writes n_orbitals to the text file
-            if self.n_orbitals is None:
-                self.n_orbitals = numpy.zeros((self.n_k,self._n_spin),numpy.int)
-            self._read_1D_matrix(   datafile="ndimwin_"+filename+".txt",
-                                    ind1=self.n_k,
-                                    ind2=self._name2SpinChannel[filename],
-                                    matrix=self.n_orbitals,
-                                    type_el="int")
-
-            num_bands=self.n_orbitals.max().max()
-            read_chkpt.write_u_matrix_opt()
-            if self._u_matrix_opt is None:
-
-                self._u_matrix_opt=numpy.zeros((num_bands,
-                                        self.total_MLWF,
-                                        self._n_spin,
-                                        self.n_k),numpy.complex)
-
-
-            self._read_3D_matrix(datafile="U_matrix_opt_"+filename+".txt",
-                                 ind1=num_bands,
-                                 ind2=self.total_MLWF,
-                                 ind4=self.n_k,
-                                 ind3=self._name2SpinChannel[filename],
-                                 matrix=self._u_matrix_opt)
-
-        else:
-            if self.n_orbitals is None:
-                self.n_orbitals = numpy.zeros((self.n_k,self._n_spin),numpy.int)
-
-            for kpt in range(self.n_k):
-                self.n_orbitals[kpt][self._name2SpinChannel[filename]]=self.total_MLWF
-
-
-        read_chkpt.write_u_matrix()
+        # if disentanglement:
+        #
+        #     #read_chkpt.write_ndimwin()  #writes n_orbitals to the text file
+        #     if self.n_orbitals is None:
+        #         self.n_orbitals = numpy.zeros((self.n_k,self._n_spin),numpy.int)
+        #     self._read_1D_matrix(   datafile="ndimwin_"+filename+".txt",
+        #                             ind1=self.n_k,
+        #                             ind2=self._name2SpinChannel[filename],
+        #                             matrix=self.n_orbitals,
+        #                             type_el="int")
+        #
+        #     num_bands=self.n_orbitals.max().max()
+        #     #read_chkpt.write_u_matrix_opt()
+        #     if self._u_matrix_opt is None:
+        #
+        #         self._u_matrix_opt=numpy.zeros((num_bands,
+        #                                 self.total_MLWF,
+        #                                 self._n_spin,
+        #                                 self.n_k),numpy.complex)
+        #
+        #
+        #     self._read_3D_matrix(datafile="U_matrix_opt_"+filename+".txt",
+        #                          ind1=num_bands,
+        #                          ind2=self.total_MLWF,
+        #                          ind4=self.n_k,
+        #                          ind3=self._name2SpinChannel[filename],
+        #                          matrix=self._u_matrix_opt)
+        #
+        # else:
+        #     if self.n_orbitals is None:
+        #         self.n_orbitals = numpy.zeros((self.n_k,self._n_spin),numpy.int)
+        #
+        #     for kpt in range(self.n_k):
+        #         self.n_orbitals[kpt][self._name2SpinChannel[filename]]=self.total_MLWF
+        #
+        #
+        # read_chkpt.write_u_matrix()
         if self._u_matrix is None:
             self._u_matrix=numpy.zeros((self.total_MLWF,
                                         self.total_MLWF,
                                         self._n_spin,
                                         self.n_k),numpy.complex)
 
-        self._read_3D_matrix(datafile="U_matrix_"+filename+".txt",
-                            ind1=self.total_MLWF,
-                            ind2=self.total_MLWF,
-                            ind4=self.n_k,
-                            ind3=self._name2SpinChannel[filename],
-                            matrix=self._u_matrix)
+        # self._read_3D_matrix(datafile="U_matrix_"+filename+".txt",
+        #                     ind1=self.total_MLWF,
+        #                     ind2=self.total_MLWF,
+        #                     ind4=self.n_k,
+        #                     ind3=self._name2SpinChannel[filename],
+        #                     matrix=self._u_matrix)
 
 
 
         #clean up allocated fortran arrays
-        read_chkpt.dealloc()
+        #read_chkpt.dealloc()
 
         if self._verbosity!=2:
             try:
@@ -1158,16 +1531,16 @@ class Wannier90Converter(Check,ConverterTools,Save):
             except OSError:
                 self.report_warning("No file"+"U_matrix_"+filename+".txt "+"found!")
 
-            if disentanglement:
-                try:
-                    remove("U_matrix_opt_"+filename+".txt")
-                except OSError:
-                    self.report_warning("No file"+"U_matrix_opt_"+filename+".txt "+"found!")
-
-                try:
-                    remove("ndimwin_"+filename+".txt")
-                except OSError:
-                    self.report_warning("No file"+"ndimwin_"+filename+".txt "+"found!")
+            # if disentanglement:
+            #     try:
+            #         remove("U_matrix_opt_"+filename+".txt")
+            #     except OSError:
+            #         self.report_warning("No file"+"U_matrix_opt_"+filename+".txt "+"found!")
+            #
+            #     try:
+            #         remove("ndimwin_"+filename+".txt")
+            #     except OSError:
+            #         self.report_warning("No file"+"ndimwin_"+filename+".txt "+"found!")
 
 
     def _produce_full_U_matrix(self):
@@ -1286,7 +1659,7 @@ class Wannier90Converter(Check,ConverterTools,Save):
                                         self._n_spin,
                                         self.n_corr_shells,
                                         max([crsh['dim'] for crsh in self.corr_shells]),
-                                        self.total_Bloch),numpy.complex_)
+                                        self.total_Bloch),numpy.complex)
 
             for icrsh in range(self.n_corr_shells):
                 n_orb,offset=self.eval_offset(n_corr=icrsh)
@@ -1311,7 +1684,7 @@ class Wannier90Converter(Check,ConverterTools,Save):
 
         """
         self._set_U_matrices_None()
-        read_chkpt.dealloc()
+        #read_chkpt.dealloc()
 
         # for dummy case number of Bloch states is equal to number of MLWF
         self.total_Bloch=self.total_MLWF
@@ -1333,134 +1706,13 @@ class Wannier90Converter(Check,ConverterTools,Save):
                                         self._n_spin,
                                         self.n_corr_shells,
                                         max([crsh['dim'] for crsh in self.corr_shells]),
-                                        self.total_Bloch),numpy.complex_)
+                                        self.total_Bloch),numpy.complex)
 
         for icrsh in range(self.n_corr_shells):
             n_orb,offset=self.eval_offset(n_corr=icrsh)
             for ik in range(self.n_k):
                 for isp in range(self._n_spin):
                     self.proj_mat[ik,isp,icrsh,0:n_orb,offset:offset+n_orb] = numpy.identity(n_orb)
-
-
-    def _read_1D_matrix(self, datafile=None, ind1=None,ind2=None, matrix=None, type_el=None):
-        """
-
-        Reads data from the text datafile to 1D matrix. One real number per line is expected.
-        To be executed only by the master node.
-
-
-        :param datafile: name of file with matrix
-        :type datafile: str
-
-        :param ind1: first dimension  of matrix
-        :type ind1: int
-
-        :param ind2: second index (not  iterating over it)
-
-        :type ind2:  int
-
-        :param matrix: matrix in which data from the text file will be stored
-        :type matrix: numpy.ndarray
-
-        :param type_el: type of elements in matrix (int or float)
-        :type type_el: str
-        """
-        types=["int","float"]
-        if mpi.is_master_node():
-            if not isinstance(matrix,numpy.ndarray): self.report_error("Numpy array was expected as input!")
-            if not isinstance(datafile,str): self.report_error("Invalid name of file: %s!"%datafile)
-            if not (isinstance(ind1,int) and ind1==matrix.shape[0] ): self.report_error("Invalid first dimension of matrix!")
-            if not (isinstance(ind2,int) and 0 <= ind2 < matrix.shape[1]): self.report_error("Invalid second index of matrix!")
-            if not type_el in types: self.report_error("Invalid type of elements in matrix!")
-
-
-            try:
-                with open(datafile, "rb") as read_1D_matrix_txt_file:
-                    read_1D_matrix = cStringIO.StringIO(read_1D_matrix_txt_file.read())  # writes file to memory to speed up reading
-                    for nkpt in range(ind1):
-                        x=read_1D_matrix.readline().split()
-
-                        if len(x)==1 and eval("isinstance("+x[0]+","+type_el+")"):
-
-                            matrix[nkpt,ind2]=literal_eval(x[0]) #evaluation of the element from the text file in the safe way
-
-                        else:
-
-                            self.report_error("Invalid format of the file. Only one entry per line was expected!")
-
-            except IOError:
-                    self.report_error("Opening file %s failed!" %datafile)
-        else: self.report_error("Function should be executed only on master mode!")
-
-
-
-    def _read_3D_matrix(self, datafile=None, ind1=None, ind2=None, ind3=None, ind4=None,  matrix=None,is_complex=True):
-        """
-       Reads data from the text datafile to 3D matrix. To be executed only by the master node.
-
-
-        :param datafile: name of file with matrix
-        :type datafile: str
-
-        :param ind1: first dimension
-        :type ind1: int
-
-        :param ind2: second dimension
-        :type ind2: int
-
-
-
-        :param ind3: third index of matrix (not iterating over it )
-
-        :type ind3: int
-
-        :param ind4: fourth dimension
-        :type ind4: int
-
-        :param matrix: matrix in which data from the text file will be stored
-        :type matrix: numpy.ndarray
-
-        :param is_complex: True if matrix is complex otherwise False
-        :type is_complex: boolean
-
-        """
-        if not isinstance(datafile,str): self.report_error("Invalid name of file: %s!"%datafile)
-        if not isinstance(matrix,numpy.ndarray): self.report_error("Numpy array was expected as input!")
-        if not (isinstance(ind1,int) and ind1==matrix.shape[0]): self.report_error("Invalid first dimension of matrix!")
-        if not (isinstance(ind2,int) and ind2==matrix.shape[1]): self.report_error("Invalid second dimension of matrix!")
-        if not (isinstance(ind3,int) and 0 <= ind3 < matrix.shape[2]): self.report_error("Invalid third index of matrix!")
-        if not (isinstance(ind4,int) and ind4==matrix.shape[3]): self.report_error("Invalid fourth dimension of matrix!")
-        if not isinstance(is_complex,bool): self.report_error("Invalid value of is_complex input parameter")
-
-        if mpi.is_master_node():
-            try:
-                with open(datafile, "rb") as read_3D_matrix_txt_file:
-                    array = cStringIO.StringIO(read_3D_matrix_txt_file.read())  # writes file to memory to speed up reading
-                    for k in range(ind4):
-                        for j in range(ind2):
-                           for  i in range(ind1):
-                                x = array.readline().split()
-                                if is_complex: #for checking format in file
-                                    if len(x)==2:
-
-                                        if not isinstance(matrix[i,j,ind3,k],complex): #type of matrix
-                                            self.report_error("Invalid type of matrix, complex matrix was expected!")
-                                        matrix[i,j,ind3,k]=complex(float(x[0]),float(x[1]))
-                                    else:
-                                        self.report_error("Invalid format of the file. "+
-                                                          "Expected format: Real_part Imaginary_part per line")
-                                else:
-                                    if len(x)==1:
-                                        if not isinstance(matrix[i,j,ind3,k],float):
-                                            self.report_error("Invalid type of matrix, real matrix was expected!")
-                                        matrix[i,j,ind3,k]=float(x[0])
-                                    else:
-                                        self.report_error("Invalid format of the file. "+
-                                                          "Expected format: real number  per line")
-
-            except IOError:
-                    self.report_error("Opening file %s failed!" %datafile)
-        else: self.report_error("Function should be executed only on master mode!")
 
 
     def _produce_hopping(self):
@@ -1473,7 +1725,7 @@ class Wannier90Converter(Check,ConverterTools,Save):
         self.hopping=numpy.zeros((  self.n_k,
                                     self._n_spin,
                                     self.total_Bloch,
-                                    self.total_Bloch),numpy.complex_)
+                                    self.total_Bloch),numpy.complex)
 
 
         if self._dummy_projectors_used:
@@ -1610,7 +1862,7 @@ class Wannier90Converter(Check,ConverterTools,Save):
         non-interacting H_k at each k-point.
         """
 
-        bz_weights = numpy.ones(self.n_k,numpy.float_)/ float(self.n_k)
+        bz_weights = numpy.ones(self.n_k,numpy.float)/ float(self.n_k)
 
         self._sumk_dft_data = { "energy_unit":1.0,
                                 "n_k":self.n_k ,
@@ -1680,7 +1932,7 @@ class Wannier90Converter(Check,ConverterTools,Save):
 
 
     @U_matrix.setter
-    def U_matrix(self,val=None):
+    def U_matrix(self,value=None):
         self.report_error("Value of U_matrix cannot be overwritten!")
 
 
@@ -1696,7 +1948,8 @@ class Wannier90Converter(Check,ConverterTools,Save):
 
 
     @U_matrix_opt.setter
-    def U_matrix_opt(self,val=None):
+    def U_matrix_opt(self,value=None):
+
          self.report_error("Value of U_opt matrix cannot be overwritten!")
 
 
@@ -1713,7 +1966,7 @@ class Wannier90Converter(Check,ConverterTools,Save):
 
 
     @U_matrix_full.setter
-    def U_matrix_full(self,val=None):
+    def U_matrix_full(self,value=None):
         self.report_error("Value of U_full matrix cannot be overwritten!")
 
 
@@ -1729,11 +1982,11 @@ class Wannier90Converter(Check,ConverterTools,Save):
 
 
     @sumk_dft_input_folder.setter
-    def sumk_dft_input_folder(self,val=None):
+    def sumk_dft_input_folder(self,value=None):
         """
         Prevents user from overwriting sumk_dft_input_folder
-        :param val: new potential value
-        :type val: str
+        :param value: new potential value
+        :type value: str
         """
         self.report_error("Attribute sumk_dft_input_folder cannot be modified by user!")
 
@@ -1767,7 +2020,7 @@ class Wannier90Converter(Check,ConverterTools,Save):
 
 
     @n_inequivalent_corr_shells.setter
-    def n_inequivalent_corr_shells(self,val=None):
+    def n_inequivalent_corr_shells(self,value=None):
         self.report_error("Attribute n_inequivalent_corr_shells cannot be modified by user!")
 
 
@@ -1813,7 +2066,7 @@ class Wannier90Converter(Check,ConverterTools,Save):
         return self._all_read
 
     @all_read.setter
-    def all_read(self,val=None):
+    def all_read(self,value=None):
        self.report_error("Attribute all_read cannot be modified by user!")
 
 
