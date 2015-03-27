@@ -237,6 +237,8 @@ class Wannier90Converter(Check,ConverterTools,Save):
 
         self._all_read = None # whether or not data needed in rerun is in the hdf file
 
+        self._atoms= None # stores all projections read so far from win file
+
         self._disentangled_spin = None # defines disentanglement separately for each spin
 
         self._dummy_projectors_used = False # defines whether or not dummy projectors are in use
@@ -732,11 +734,11 @@ class Wannier90Converter(Check,ConverterTools,Save):
         lines=self._win_par["projections"].split("\n")
         lines.pop(len(lines)-1) # remove \n from the last line
         self.shells=[]
-        atoms={}
+        self._atoms={}
         num_atom=-1
         if not ":" in lines[0]: lines.pop(0) # in case first line in the block is [units] remove it
         for line in lines: # each line is a different atom, but atoms can repeat themselves
-            label=line[:line.find(":")]
+            label=(line[:line.find(":")]).lower() # case of the label does not matter
             begin=line.find(":")+1  # here we add 1 because we want content after
 
             if ":" in line[begin:]:
@@ -747,13 +749,13 @@ class Wannier90Converter(Check,ConverterTools,Save):
             projections=line[begin:end].split(";")
 
             i=0
-            if not label in atoms:
+            if not label in self._atoms:
                 num_atom+=1
-                res=self._get_proj_l(input_proj=projections.pop(0))
+                self._atoms[label]={"num_atom":num_atom,"state":[]}
+                res=self._get_proj_l(input_proj=projections.pop(0),atom_name=label)
                 temp_shells=[{"atom":num_atom,"dim":res["dim"],"l":res["l"]}]
-                atoms[label]={"num_atom":num_atom}
                 for proj in projections:
-                    res=self._get_proj_l(input_proj=proj)
+                    res=self._get_proj_l(input_proj=proj, atom_name=label)
                     l=res["l"]
                     dim=res["dim"]
                     found=False
@@ -767,11 +769,11 @@ class Wannier90Converter(Check,ConverterTools,Save):
 
                 self.shells.extend(temp_shells)
 
-            elif label in atoms:
+            elif label in self._atoms:
 
-                local_num_atom=atoms[label]["num_atom"]
+                local_num_atom=self._atoms[label]["num_atom"]
                 for proj in projections:
-                    res=self._get_proj_l(input_proj=proj)
+                    res=self._get_proj_l(input_proj=proj,atom_name=label)
                     l=res["l"]
                     dim=res["dim"]
                     found=False
@@ -785,7 +787,15 @@ class Wannier90Converter(Check,ConverterTools,Save):
 
         for state in self.shells:
 
-            if state["dim"]>(state["l"]*2+1):
+            if state["l"] <0: # non-correlated hybridized states
+                hyb_found=False
+                for entry in self._all_states:
+                    if state["l"]== entry["l"] and  state["dim"]!= entry["dim"]:
+                        hyb_found=True
+                        break
+                if not hyb_found:
+                    self.report_error("Wrong structure of shells!")
+            elif state["dim"]>(state["l"]*2+1):
                 self.report_error("Wrong structure of shells!")
 
 
@@ -807,11 +817,16 @@ class Wannier90Converter(Check,ConverterTools,Save):
                 self.corr_shells.append(corr_state)
 
 
-    def _get_proj_l(self,input_proj=None):
+    def _get_proj_l(self, input_proj=None, atom_name=None):
         """
 
-        :param input_proj: initial guess for MLWF to be analysed
-        :type input_proj: string
+
+
+        :param input_proj: Initial guess for MLWF to be analysed
+        :type input_proj: str
+
+        :param atom_name: Name of atom from *.win file for which shells are to be found
+        :type atom_name: str
 
         :return: l, mr,dim for  the given initial guess for MLWF
         :rtype : dictionary
@@ -822,14 +837,15 @@ class Wannier90Converter(Check,ConverterTools,Save):
         dim=0
         indx=0
         if not isinstance(input_proj,str):
-            self.report_error("Invalid initial projection!")
+            self.report_error("Projection %s is an invalid initial projection!"%proj_all_entries)
 
         # case: l=foo1, mr=foo2,foo3,...
         if len(proj_all_entries)>=4:
 
             if "l" in proj_all_entries:
                 indx=proj_all_entries.index("l")+1
-                if indx==len(proj_all_entries): self.report_error("Invalid initial projection!")
+                if indx==len(proj_all_entries): self.report_error("Projection %s is an "
+                                                                  "invalid initial projection!"%proj_all_entries)
 
                 # convert value l from string to int
                 try:
@@ -838,7 +854,8 @@ class Wannier90Converter(Check,ConverterTools,Save):
                     self.report_error("Invalid value of l!")
 
             else:
-                self.report_error("Invalid initial projection!")
+                self.report_error("Projection %s is an invalid"
+                                  " initial projection!"%proj_all_entries)
 
             indx+=1
             if not "mr" == proj_all_entries[indx]:
@@ -863,6 +880,10 @@ class Wannier90Converter(Check,ConverterTools,Save):
                     if state["l"] == l and state["mr"] == mr_item:
                         dim+= state["dim"]
                         mr_found=True
+
+                        # check if the same projection not repeated
+                        self._is_unique_proj(atom_name=atom_name,state=state)
+
                         break
 
                 if not mr_found:
@@ -872,15 +893,21 @@ class Wannier90Converter(Check,ConverterTools,Save):
         elif len(proj_all_entries)==2:
             if "l" in proj_all_entries:
                 indx=proj_all_entries.index("l")+1
-                if indx==len(proj_all_entries): self.report_error("Invalid initial projection!")
+                if indx==len(proj_all_entries): self.report_error("Projection %s is an invalid"
+                                                                  " initial projection!"%proj_all_entries)
                 l=proj_all_entries[indx]
             else:
-                self.report_error("Invalid initial projection!")
+                self.report_error("Projection %s is an invalid "
+                                  "initial projection!"%proj_all_entries)
 
             for state in self._all_states:
 
                 if state["l"] == l and  state["mr"] is None:
                     dim = state["dim"]
+
+                    # check if the same projection not repeated
+                    self._is_unique_proj(atom_name=atom_name,state=state)
+
                     break
 
             if dim ==0:
@@ -893,13 +920,17 @@ class Wannier90Converter(Check,ConverterTools,Save):
                 if state["name"]==proj_all_entries[0]:
                     l=state["l"]
                     dim=state["dim"]
+                    # check if the same projection not repeated
+                    self._is_unique_proj(atom_name=atom_name,state=state)
                     break
 
             if dim==0:
-                self.report_error("Invalid initial projection!")
+                self.report_error("Projection %s is an invalid "
+                                  "initial projection!"%proj_all_entries)
 
         else:
-             self.report_error("Invalid initial projection!")
+             self.report_error("Projection %s is an invalid "
+                               "initial projection!"%proj_all_entries)
 
         return  {"l":l,"dim":dim}
 
@@ -1326,6 +1357,24 @@ class Wannier90Converter(Check,ConverterTools,Save):
     #         self.report_error("Shell was expected!")
     #
     #     return cmp(shell_1st,shell_2nd)==0
+
+
+    def _is_unique_proj(self,atom_name=None, state=None):
+
+        """
+        Checks if projections defined by state input parameters
+        were not defined before, if it was defined then program
+        prints info about repetition and terminates.
+
+        :param state: dictionary with the projection
+        :type state: dict
+        """
+
+        if not state in self._atoms[atom_name]["state"]:
+            self._atoms[atom_name]["state"].append(state)
+        else:
+            self.report_error("Repetition of the projection for %s"
+                                              " for atom labeled by: %s"%(state,atom_name))
 
 
     def compare_shells(self,shell=None, corr_shell=None):

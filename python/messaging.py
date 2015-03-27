@@ -10,6 +10,8 @@ class Report(object):
     """
         *Simple error handling.*
     """
+    edge_line="!------------------------------------------------------------------------------------!"
+
     def __init__(self):
         self._verbosity=None
         self._filename=None
@@ -25,12 +27,11 @@ class Report(object):
         comm = mpi.MPI.COMM_WORLD
         if mpi.is_master_node():
             if isinstance(string, str):
-
                 inspect_data = getframeinfo(currentframe().f_back)
-                self._print_message(input_message="Error: " + string +
-                   "(file: %s, line: %s, in function: %s)" % (
-                inspect_data.filename, inspect_data.lineno, inspect_data.function)+
-                                                 " (in "+self.__class__.__name__+")")
+                msg=("Error: " + string +"(file: %s, line: %s, in function: %s)"
+                     % (inspect_data.filename, inspect_data.lineno, inspect_data.function)+
+                     " (in "+self.__class__.__name__+")")
+                self._print_message(input_message=msg)
             else:
                 self._print_message("Wrong argument of the report_error" +
                         "function. Please send one string as an input parameter!")
@@ -45,8 +46,8 @@ class Report(object):
         """
         if self._verbosity==2:
             if isinstance(string, str):
-                self._print_message(input_message=string+
-                                                 " (in "+self.__class__.__name__+")")
+                msg=string+" (in "+self.__class__.__name__+")"
+                self._print_message(input_message=msg)
             else:
                 self._print_message("Wrong argument of the warning" +
                        "function. Please send one string as an input parameter!")
@@ -59,7 +60,8 @@ class Report(object):
         :type string: str
         """
         if isinstance(string, str):
-            self._print_message(input_message=string+" (in "+self.__class__.__name__+")")
+            msg=string+" (in "+self.__class__.__name__+")"
+            self._print_message(input_message=msg)
         else:
             self._print_message("Wrong argument of the warning" +
                    "function. Please send one string as an input parameter!")
@@ -74,8 +76,8 @@ class Report(object):
         """
         if self._verbosity==2:
             if isinstance(string, str):
-                    self._print_message(input_message="Warning: "+
-                                                                string+" (in "+self.__class__.__name__+")")
+                msg="Warning: "+string+" (in "+self.__class__.__name__+")"
+                self._print_message(input_message=msg)
             else:
                 self._print_message("Wrong argument of the warning" +
                        "function. Please send one string as an input parameter!")
@@ -95,8 +97,7 @@ class Report(object):
 
     def _make_message(self,input_message=None):
 
-        edge_line="!------------------------------------------------------------------------------------!"
-
+        edge_line=self.__class__.edge_line
         message="\n"+edge_line+"\n"
         message+=self._make_inner_message(input_message=input_message)
         message+=edge_line+"\n"

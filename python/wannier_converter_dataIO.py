@@ -15,7 +15,7 @@ class AsciiIO(Check):
                -  Reads data from the ASCII file, with case sensitive names
                    (method: read_txt_file)
                 
-               -  Reads data from the ASCII file honouring Fortran name convention
+               -  Reads data from the ASCII file honouring Fortran name convention (convention of Wannier90)
                    (method: read_ASCII_fortran_file)
 
 
@@ -343,7 +343,7 @@ class AsciiIO(Check):
     def read_ASCII_fortran_file(self, file_to_read = None, default_dic=None):
         """
         Reads data from ASCII file which is expected to be an input for
-        Fortran programs. Short characteristics of input format in read_txt_fortran_file::
+        Fortran programs (like Wannier90). Short characteristics of input format in read_txt_fortran_file::
         
             -   Cases of letters in keywords do not matter: Fortran style..
                 Cases of value are not checked (all values are read as strings).
@@ -414,7 +414,9 @@ class AsciiIO(Check):
                         for a in comment_marker:
                             indx = line.find(a)
                             if indx > -1:
-                                line = line[:indx]
+                                line = line[:indx]+"\n"
+
+
 
                         if line.strip():  # ignore blank lines
                             words_in_line = line.replace("="," ").replace(":"," ").split()
