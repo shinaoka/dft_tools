@@ -27,6 +27,8 @@ from pytriqs.gf.local import *
 import pytriqs.utility.mpi as mpi
 from pytriqs.archive import *
 from symmetry import *
+from sets import Set
+from itertools import product
 
 class SumkDFT:
     """This class provides a general SumK method for combining ab-initio code and pytriqs."""
@@ -34,13 +36,45 @@ class SumkDFT:
 
     def __init__(self, hdf_file, h_field = 0.0, use_dft_blocks = False, 
 	         dft_data = 'dft_input', symmcorr_data = 'dft_symmcorr_input', parproj_data = 'dft_parproj_input', 
-                 symmpar_data = 'dft_symmpar_input', bands_data = 'dft_bands_input', transp_data = 'dft_transp_input'):
-        """
-        Initialises the class from data previously stored into an HDF5
+                 symmpar_data = 'dft_symmpar_input', bands_data = 'dft_bands_input', transp_data = 'dft_transp_input',
+                 misc_data = 'dft_misc_input'):
+        r"""
+        Initialises the class from data previously stored into an hdf5 archive.
+
+        Parameters
+        ----------
+        hdf_file : string
+                   Name of hdf5 containing the data.
+        h_field : scalar, optional
+                  The value of magnetic field to add to the DFT Hamiltonian. 
+                  The contribution -h_field*sigma is added to diagonal elements of the Hamiltonian.
+                  It cannot be used with the spin-orbit coupling on; namely h_field is set to 0 if self.SO=True.
+        use_dft_blocks : boolean, optional
+                         If True, the local Green's function matrix for each spin is divided into smaller blocks 
+                          with the block structure determined from the DFT density matrix of the corresponding correlated shell.
+        dft_data : string, optional
+                   Name of hdf5 subgroup in which DFT data for projector and lattice Green's function construction are stored.
+        symmcorr_data : string, optional
+                        Name of hdf5 subgroup in which DFT data on symmetries of correlated shells 
+                        (symmetry operations, permutaion matrices etc.) are stored.
+        parproj_data : string, optional
+                       Name of hdf5 subgroup in which DFT data on non-normalized projectors for non-correlated
+                       states (used in the partial density of states calculations) are stored.
+        symmpar_data : string, optional
+                       Name of hdf5 subgroup in which DFT data on symmetries of the non-normalized projectors
+                       are stored.
+        bands_data : string, optional
+                     Name of hdf5 subgroup in which DFT data necessary for band-structure/k-resolved spectral
+                     function calculations (projectors, DFT Hamiltonian for a chosen path in the Brillouin zone etc.)
+                     are stored.
+        transp_data : string, optional
+                      Name of hdf5 subgroup in which DFT data necessary for transport calculations are stored.
+        misc_data : string, optional
+                    Name of hdf5 subgroup in which miscellaneous DFT data are stored.
         """
 
         if not type(hdf_file) == StringType:
-            mpi.report("Give a string for the HDF5 filename to read the input!")
+            mpi.report("Give a string for the hdf5 filename to read the input!")
         else:
             self.hdf_file = hdf_file
             self.dft_data = dft_data
@@ -49,7 +83,7 @@ class SumkDFT:
             self.symmpar_data = symmpar_data
             self.bands_data = bands_data
             self.transp_data = transp_data
-            #self.G_latt_iw = None # DEBUG -- remove later
+            self.misc_data = misc_data
             self.h_field = h_field
 
             # Read input from HDF:
@@ -98,14 +132,28 @@ class SumkDFT:
             # Analyse the block structure and determine the smallest gf_struct blocks and maps, if desired
             if use_dft_blocks: self.analyse_block_structure()
 
-
 ################
-# HDF5 FUNCTIONS
+# hdf5 FUNCTIONS
 ################
 
     def read_input_from_hdf(self, subgrp, things_to_read):
-        """
-        Reads data from the HDF file
+        r"""
+        Reads data from the HDF file. Prints a warning if a requested dataset is not found.
+
+        Parameters
+        ----------
+        subgrp : string
+                 Name of hdf5 file subgroup from which the data are to be read.
+        things_to_read : list of strings
+                         List of datasets to be read from the hdf5 file.
+
+        Returns
+        -------
+        subgroup_present : boolean
+                           Is the subgrp is present in hdf5 file?
+        value_read : boolean
+                     Did the reading of requested datasets succeed?
+
         """
 
         value_read = True
@@ -125,7 +173,7 @@ class SumkDFT:
                         mpi.report("Loading %s failed!"%it)
                         value_read = False
             else:
-                if (len(things_to_read) != 0): mpi.report("Loading failed: No %s subgroup in HDF5!"%subgrp)
+                if (len(things_to_read) != 0): mpi.report("Loading failed: No %s subgroup in hdf5!"%subgrp)
                 subgroup_present = False
                 value_read = False
             del ar
@@ -138,7 +186,17 @@ class SumkDFT:
 
 
     def save(self, things_to_save, subgrp='user_data'):
-        """Saves given quantities into the subgroup ('user_data' by default) of the HDF5 archive"""
+       
+        r"""
+        Saves data from a list into the HDF file. Prints a warning if a requested data is not found in SumkDFT object.
+
+        Parameters
+        ----------
+        things_to_save : list of strings
+                         List of datasets to be saved into the hdf5 file.
+        subgrp : string, optional
+                 Name of hdf5 file subgroup in which the data are to be stored.
+        """
 
         if not (mpi.is_master_node()): return # do nothing on nodes
         ar = HDFArchive(self.hdf_file,'a')
@@ -152,7 +210,21 @@ class SumkDFT:
 
 
     def load(self, things_to_load, subgrp='user_data'):
-        """Loads given quantities from the subgroup ('user_data' by default) of the HDF5 archive"""
+        r"""
+        Loads user data from the HDF file. Raises an exeption if a requested dataset is not found.
+
+        Parameters
+        ----------
+        things_to_read : list of strings
+                         List of datasets to be read from the hdf5 file.
+        subgrp : string, optional
+                 Name of hdf5 file subgroup from which the data are to be read.
+
+        Returns
+        -------
+        list_to_return : list
+                         A list containing data read from hdf5.
+        """
 
         if not (mpi.is_master_node()): return # do nothing on nodes
         ar = HDFArchive(self.hdf_file,'a')
@@ -171,7 +243,38 @@ class SumkDFT:
 ################
 
     def downfold(self,ik,ish,bname,gf_to_downfold,gf_inp,shells='corr',ir=None):
-        """Downfolding a block of the Greens function"""
+        r"""
+        Downfolds a block of the Green's function for a given shell and k-point using the corresponding projector matrices.
+
+        Parameters
+        ----------
+        ik : integer
+             k-point index for which the downfolding is to be done.
+        ish : integer
+              Shell index of GF to be downfolded.
+
+              - if shells='corr': ish labels all correlated shells (equivalent or not)
+              - if shells='all': ish labels only representative (inequivalent) non-correlated shells
+
+        bname : string
+                Block name of the target block of the lattice Green's function.
+        gf_to_downfold : Gf 
+                       Block of the Green's function that is to be downfolded.
+        gf_inp : Gf 
+                 FIXME 
+        shells : string, optional
+
+                 - if shells='corr': orthonormalized projectors for correlated shells are used for the downfolding.
+                 - if shells='all': non-normalized projectors for all included shells are used for the downfolding.
+
+        ir : integer, optional
+             Index of equivalent site in the non-correlated shell 'ish', only used if shells='all'.
+             
+        Returns
+        -------
+        gf_downfolded : Gf
+                      Downfolded block of the lattice Green's function.
+        """
   
         gf_downfolded = gf_inp.copy()
         isp = self.spin_names_to_ind[self.SO][bname]       # get spin index for proj. matrices
@@ -190,7 +293,38 @@ class SumkDFT:
 
 
     def upfold(self,ik,ish,bname,gf_to_upfold,gf_inp,shells='corr',ir=None):
-        """Upfolding a block of the Greens function"""
+        r"""
+        Upfolds a block of the Green's function for a given shell and k-point using the corresponding projector matrices.
+
+        Parameters
+        ----------
+        ik : integer
+             k-point index for which the upfolding is to be done.
+        ish : integer
+              Shell index of GF to be upfolded.
+
+              - if shells='corr': ish labels all correlated shells (equivalent or not)
+              - if shells='all': ish labels only representative (inequivalent) non-correlated shells
+
+        bname : string
+                Block name of the target block of the lattice Green's function.
+        gf_to_upfold : Gf 
+                       Block of the Green's function that is to be upfolded.
+        gf_inp : Gf 
+                 FIXME 
+        shells : string, optional
+
+                 - if shells='corr': orthonormalized projectors for correlated shells are used for the upfolding.
+                 - if shells='all': non-normalized projectors for all included shells are used for the upfolding.
+
+        ir : integer, optional
+             Index of equivalent site in the non-correlated shell 'ish', only used if shells='all'.
+             
+        Returns
+        -------
+        gf_upfolded : Gf
+                      Upfolded block of the lattice Green's function.
+        """
   
         gf_upfolded = gf_inp.copy()
         isp = self.spin_names_to_ind[self.SO][bname]       # get spin index for proj. matrices
@@ -209,8 +343,35 @@ class SumkDFT:
 
 
     def rotloc(self,ish,gf_to_rotate,direction,shells='corr'):
-        """Local <-> Global rotation of a GF block.
-           direction: 'toLocal' / 'toGlobal' """
+        r"""
+        Rotates a block of the local Green's function from the local frame to the global frame and vice versa.
+
+        Parameters
+        ----------
+        ish : integer
+              Shell index of GF to be rotated.
+
+              - if shells='corr': ish labels all correlated shells (equivalent or not)
+              - if shells='all': ish labels only representative (inequivalent) non-correlated shells
+
+        gf_to_rotate : Gf 
+                       Block of the Green's function that is to be rotated.
+        direction : string
+                    The direction of rotation can be either 
+
+                    - 'toLocal' : global -> local transformation,
+                    - 'toGlobal' : local -> global transformation.
+
+        shells : string, optional
+
+                 - if shells='corr': the rotation matrix for the correlated shell 'ish' is used,
+                 - if shells='all': the rotation matrix for the generic (non-correlated) shell 'ish' is used.
+
+        Returns
+        -------
+        gf_rotated : Gf
+                     Rotated block of the local Green's function.
+        """
 
         assert ((direction == 'toLocal') or (direction == 'toGlobal')),"rotloc: Give direction 'toLocal' or 'toGlobal'."
         gf_rotated = gf_to_rotate.copy()
@@ -240,10 +401,44 @@ class SumkDFT:
         return gf_rotated
 
 
-    def lattice_gf(self, ik, mu, iw_or_w="iw", beta=40, broadening=None, mesh=None, with_Sigma=True, with_dc=True):
-        """Calculates the lattice Green function from the DFT hopping and the self energy at k-point number ik
-           and chemical potential mu."""
+    def lattice_gf(self, ik, mu=None, iw_or_w="iw", beta=40, broadening=None, mesh=None, with_Sigma=True, with_dc=True):
+        r"""
+        Calculates the lattice Green function for a given k-point from the DFT Hamiltonian and the self energy. 
 
+        Parameters
+        ----------
+        ik : integer
+             k-point index.
+        mu : real, optional
+             Chemical potential for which the Green's function is to be calculated.
+             If not provided, self.chemical_potential is used for mu.
+        iw_or_w : string, optional
+
+                  - `iw_or_w` = 'iw' for a imaginary-frequency self-energy
+                  - `iw_or_w` = 'w' for a real-frequency self-energy
+
+        beta : real, optional
+               Inverse temperature.
+        broadening : real, optional
+                     Imaginary shift for the axis along which the real-axis GF is calculated.
+                     If not provided, broadening will be set to double of the distance between mesh points in 'mesh'.
+        mesh : list, optional
+               Data defining mesh on which the real-axis GF will be calculated, given in the form
+               (om_min,om_max,n_points), where om_min is the minimum omega, om_max is the maximum omega and n_points is the number of points.
+        with_Sigma : boolean, optional
+                     If True the GF will be calculated with the self-energy stored in self.Sigmaimp_(w/iw), for real/Matsubara GF, respectively. 
+                     In this case the mesh is taken from the self.Sigma_imp object.
+                     If with_Sigma=True but self.Sigmaimp_(w/iw) is not present, with_Sigma is reset to False.
+        with_dc : boolean, optional
+                  if True and with_Sigma=True, the dc correction is substracted from the self-energy before it is included into GF.
+                     
+        Returns
+        -------
+        G_latt : BlockGf
+                 Lattice Green's function.
+       
+        """
+        if mu is None: mu = self.chemical_potential
         ntoi = self.spin_names_to_ind[self.SO]
         spn = self.spin_block_names[self.SO]
         if (iw_or_w != "iw") and (iw_or_w != "w"): raise ValueError, "lattice_gf: Implemented only for Re/Im frequency functions."
@@ -253,12 +448,16 @@ class SumkDFT:
                 broadening = 0.01
             else: # broadening = 2 * \Delta omega, where \Delta omega is the spacing of omega points
                 broadening = 2.0 * ( (mesh[1]-mesh[0])/(mesh[2]-1) )
+        n_iw = 1025 # Default number of Matsubara frequencies
 
         # Are we including Sigma?
         if with_Sigma:
-            if with_dc: sigma_minus_dc = self.add_dc(iw_or_w)
             Sigma_imp = getattr(self,"Sigma_imp_"+iw_or_w)
-            if iw_or_w == "iw": beta = Sigma_imp[0].mesh.beta   # override beta if Sigma_iw is present
+            sigma_minus_dc = [s.copy() for s in Sigma_imp]
+            if with_dc: sigma_minus_dc = self.add_dc(iw_or_w)
+            if iw_or_w == "iw":
+                beta = Sigma_imp[0].mesh.beta   # override beta if Sigma_iw is present
+                n_iw = len(Sigma_imp[0].mesh)
         else:
             if (iw_or_w == "w") and (mesh is None):
                 raise ValueError, "lattice_gf: Give the mesh=(om_min,om_max,n_points) for the lattice GfReFreq."
@@ -280,7 +479,7 @@ class SumkDFT:
             gf_struct = [ (spn[isp], block_structure[isp]) for isp in range(self.n_spin_blocks[self.SO]) ]
             block_ind_list = [block for block,inner in gf_struct]
             if iw_or_w == "iw":
-               glist = lambda : [ GfImFreq(indices=inner,beta=beta) for block,inner in gf_struct]
+               glist = lambda : [ GfImFreq(indices=inner,beta=beta,n_points=n_iw) for block,inner in gf_struct]
             elif iw_or_w == "w":
                  if with_Sigma:
                     glist = lambda : [ GfReFreq(indices=inner,mesh=Sigma_imp[0].mesh) for block,inner in gf_struct]
@@ -313,7 +512,16 @@ class SumkDFT:
 
 
     def put_Sigma(self, Sigma_imp):
-        """Sets the impurity self energies for inequivalent atoms into the class, respects the multiplicity of the atoms."""
+        r"""
+        Inserts the impurity self-energies into the sumk_dft class.
+
+        Parameters
+        ----------
+        Sigma_imp : list of BlockGf (Green's function) objects
+                    List containing impurity self-energy for all inequivalent correlated shells.
+                    Self-energies for equivalent shells are then automatically set by this function.
+                    The self-energies can be of the real or imaginary-frequency type.
+        """
 
         assert isinstance(Sigma_imp,list), "put_Sigma: Sigma_imp has to be a list of Sigmas for the correlated shells, even if it is of length 1!"
         assert len(Sigma_imp) == self.n_inequiv_shells, "put_Sigma: give exactly one Sigma for each inequivalent corr. shell!"
@@ -350,11 +558,25 @@ class SumkDFT:
                 for bname,gf in SK_Sigma_imp[icrsh]: gf << self.rotloc(icrsh,gf,direction='toGlobal')
 
 
-    def extract_G_loc(self, mu = None, with_Sigma = True):
-        """
-        Extracts the local downfolded Green function at the chemical potential of the class.
-        At the end, the local G is rotated from the global coordinate system to the local system.
-        if with_Sigma = False: Sigma is not included => non-interacting local GF
+    def extract_G_loc(self, mu=None, with_Sigma=True, with_dc=True):
+        r"""
+        Extracts the local downfolded Green function by the Brillouin-zone integration of the lattice Green's function.
+
+        Parameters
+        ----------
+        mu : real, optional
+             Input chemical potential. If not provided the value of self.chemical_potential is used as mu.
+        with_Sigma : boolean, optional
+                     If True then the local GF is calculated with the self-energy self.Sigma_imp.
+        with_dc : boolean, optional
+                  If True then the double-counting correction is subtracted from the self-energy in calculating the GF.
+
+        Returns
+        -------
+        G_loc_inequiv : list of BlockGf (Green's function) objects
+                        List of the local Green's functions for all inequivalent correlated shells, 
+                        rotated into the corresponding local frames.
+       
         """
 
         if mu is None: mu = self.chemical_potential
@@ -365,7 +587,7 @@ class SumkDFT:
         ikarray = numpy.array(range(self.n_k))
         for ik in mpi.slice_array(ikarray):
 
-            G_latt_iw = self.lattice_gf(ik = ik, mu = mu, iw_or_w = "iw", with_Sigma = with_Sigma, beta = beta)
+            G_latt_iw = self.lattice_gf(ik=ik, mu=mu, iw_or_w="iw", with_Sigma=with_Sigma, with_dc=with_dc, beta=beta)
             G_latt_iw *= self.bz_weights[ik]
 
             for icrsh in range(self.n_corr_shells):
@@ -373,8 +595,9 @@ class SumkDFT:
                 for bname,gf in tmp: tmp[bname] << self.downfold(ik,icrsh,bname,G_latt_iw[bname],gf)
                 G_loc[icrsh] += tmp
 
-        # collect data from mpi
-        for icrsh in range(self.n_corr_shells): G_loc[icrsh] << mpi.all_reduce(mpi.world, G_loc[icrsh], lambda x,y : x+y)
+        # Collect data from mpi
+        for icrsh in range(self.n_corr_shells): 
+            G_loc[icrsh] << mpi.all_reduce(mpi.world, G_loc[icrsh], lambda x,y : x+y)
         mpi.barrier()
 
         # G_loc[:] is now the sum over k projected to the local orbitals.
@@ -402,7 +625,24 @@ class SumkDFT:
 
 
     def analyse_block_structure(self, threshold = 0.00001, include_shells = None, dm = None):
-        """ Determines the Green's function block structure from simple point integration."""
+        r"""
+        Determines the block structure of local Green's functions by analysing the structure of 
+        the corresponding density matrices. The resulting block structures for correlated shells
+        are stored in self.gf_struct_solver list.
+
+        Parameters
+        ----------
+        threshold : real, optional
+                    If the difference between density matrix elements is below threshold,
+                    they are considered to be equal.
+        include_shells : list of integers, optional
+                         List of correlated shells to be analysed.
+                         If include_shells is not provided all correlated shells will be analysed.
+        dm : list of dict, optional
+             List of density matrices from which block stuctures are to be analysed.
+             Each density matrix is a dict {block names: 2d numpy arrays}.
+             If not provided, dm will be calculated from the DFT Hamiltonian by a simple-point BZ integration.
+        """
 
         self.gf_struct_solver = [ {} for ish in range(self.n_inequiv_shells) ]
         self.sumk_to_solver = [ {} for ish in range(self.n_inequiv_shells) ]
@@ -417,29 +657,27 @@ class SumkDFT:
 
 
             for sp in self.spin_block_names[self.corr_shells[self.inequiv_to_corr[ish]]['SO']]:
+                n_orb = self.corr_shells[self.inequiv_to_corr[ish]]['dim']
                 dmbool = (abs(dens_mat[ish][sp]) > threshold)  # gives an index list of entries larger that threshold
 
                 # Determine off-diagonal entries in upper triangular part of density matrix
-                offdiag = []
-                for i in range(len(dmbool)):
-                    for j in range(i+1,len(dmbool)):
-                        if dmbool[i,j]: offdiag.append([i,j])
+                offdiag = Set([])
+                for i in range(n_orb):
+                    for j in range(i+1,n_orb):
+                        if dmbool[i,j]: offdiag.add((i,j))
 
                 # Determine the number of non-hybridising blocks in the gf
-                num_blocs = len(dmbool)
-                blocs = [ [i] for i in range(num_blocs) ]
-                for i in range(len(offdiag)):
-                    for j in range(len(blocs[offdiag[i][1]])): blocs[offdiag[i][0]].append(blocs[offdiag[i][1]][j])
-                    del blocs[offdiag[i][1]]
-                    for j in range(i+1,len(offdiag)):
-                        if offdiag[j][0] == offdiag[i][1]: offdiag[j][0] = offdiag[i][0]
-                        if offdiag[j][1] == offdiag[i][1]: offdiag[j][1] = offdiag[i][0]
-                        if offdiag[j][0] > offdiag[i][1]: offdiag[j][0] -= 1
-                        if offdiag[j][1] > offdiag[i][1]: offdiag[j][1] -= 1
-                        offdiag[j].sort()
-                    num_blocs -= 1
+                blocs = [ [i] for i in range(n_orb) ]
+                while len(offdiag) != 0:
+                    pair = offdiag.pop()
+                    for b1,b2 in product(blocs,blocs):
+                       if (pair[0] in b1) and (pair[1] in b2):
+                           if blocs.index(b1) != blocs.index(b2):     # In separate blocks?
+                               b1.extend(blocs.pop(blocs.index(b2)))  # Merge two blocks
+                               break                                  # Move on to next pair in offdiag
 
                 # Set the gf_struct for the solver accordingly
+                num_blocs = len(blocs)
                 for i in range(num_blocs):
                     blocs[i].sort()
                     self.gf_struct_solver[ish].update( [('%s_%s'%(sp,i),range(len(blocs[i])))] )
@@ -486,11 +724,24 @@ class SumkDFT:
 
 
     def density_matrix(self, method = 'using_gf', beta = 40.0):
-        """Calculate density matrices in one of two ways:
-            if 'using_gf': First get lattice gf (g_loc is not set up), then density matrix.
-                              It is useful for Hubbard I, and very quick.
-                              No assumption on the hopping structure is made (ie diagonal or not).
-            if 'using_point_integration': Only works for diagonal hopping matrix (true in wien2k).
+        """Calculate density matrices in one of two ways.
+
+        Parameters
+        ----------
+        method : string, optional
+
+                 - if 'using_gf': First get lattice gf (g_loc is not set up), then density matrix.
+                                  It is useful for Hubbard I, and very quick.
+                                  No assumption on the hopping structure is made (ie diagonal or not).
+                 - if 'using_point_integration': Only works for diagonal hopping matrix (true in wien2k).
+
+        beta : float, optional
+               Inverse temperature.      
+
+        Returns
+        -------
+        dens_mat : list of dicts
+                   Density matrix for each spin in each correlated shell.
         """
         dens_mat = [ {} for icrsh in range(self.n_corr_shells)]
         for icrsh in range(self.n_corr_shells):
@@ -562,7 +813,28 @@ class SumkDFT:
 
     # For simple dft input, get crystal field splittings.
     def eff_atomic_levels(self):
-        """Calculates the effective atomic levels needed as input for the Hubbard I Solver."""
+        r"""
+        Calculates the effective local Hamiltonian required as an input for
+        the Hubbard I Solver.
+        The local Hamiltonian (effective atomic levels) is calculated by
+        projecting the on-site Bloch Hamiltonian:
+
+        .. math:: H^{loc}_{m m'} = \sum_{k} P_{m \nu}(k) H_{\nu\nu'}(k) P^{*}_{\nu' m'}(k),
+
+        where
+
+        .. math:: H_{\nu\nu'}(k) = [\epsilon_{\nu k} - h_{z} \sigma_{z}] \delta_{\nu\nu'}.
+
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        eff_atlevels : gf_struct_solver like
+                       Effective local Hamiltonian :math:`H^{loc}_{m m'}` for each correlated shell.
+
+        """
 
         # define matrices for inequivalent shells:
         eff_atlevels = [ {} for ish in range(self.n_inequiv_shells) ]
@@ -610,8 +882,14 @@ class SumkDFT:
 
 
     def init_dc(self):
-        """ Initialise the double counting terms to have the correct shape."""
+        r"""
+        Initializes the double counting terms.
 
+        Parameters
+        ----------
+        None
+
+        """
         self.dc_imp = [ {} for icrsh in range(self.n_corr_shells)]
         for icrsh in range(self.n_corr_shells):
             dim = self.corr_shells[icrsh]['dim']
@@ -621,20 +899,61 @@ class SumkDFT:
 
 
     def set_dc(self,dc_imp,dc_energ):
-        """Sets double counting terms dc_imp and dc_energ to known values."""
+        r"""
+        Sets double counting corrections to given values.
+        
+        Parameters
+        ----------
+        dc_imp : gf_struct_sumk like
+                 Double-counting self-energy term.
+        dc_energ : list of floats
+                   Double-counting energy corrections for each correlated shell. 
+                 
+        """
 
         self.dc_imp = dc_imp
         self.dc_energ = dc_energ
 
 
     def calc_dc(self,dens_mat,orb=0,U_interact=None,J_hund=None,use_dc_formula=0,use_dc_value=None):
-        """Sets the double counting corrections in the correct form for inequiv orbital orb:
-           1) either using U_interact, J_hund and 
-           use_dc_formula = 0: fully-localised limit (FLL),
-           use_dc_formula = 1: Held's formula,
-           use_dc_formula = 2: around mean-field (AMF).
-           2) or using a given dc value in use_dc_value.
-           Be sure that you are using the correct interaction Hamiltonian!"""
+        r"""
+        Calculates and sets the double counting corrections.
+
+        If 'use_dc_value' is provided the double-counting term is uniformly initialized
+        with this constant and 'U_interact' and 'J_hund' are ignored.
+
+        If 'use_dc_value' is None the correction is evaluated according to 
+        one of the following formulae:
+
+        * use_dc_formula = 0: fully-localised limit (FLL)
+        * use_dc_formula = 1: Held's formula, i.e. mean-field formula for the Kanamori
+                              type of the interaction Hamiltonian
+        * use_dc_formula = 2: around mean-field (AMF)
+
+        Note that FLL and AMF formulae were derived assuming a full Slater-type interaction
+        term and should be thus used accordingly. For the Kanamori-type interaction
+        one should use formula 1.
+
+        The double-counting self-energy term is stored in `self.dc_imp` and the energy
+        correction in `self.dc_energ`.
+
+        Parameters
+        ----------
+        dens_mat : gf_struct_solver like
+                   Density matrix for the specified correlated shell.
+        orb : int, optional
+              Index of an inequivalent shell.
+        U_interact : float, optional
+                     Value of interaction parameter `U`.
+        J_hund : float, optional
+                 Value of interaction parameter `J`.
+        use_dc_formula : int, optional
+                         Type of double-counting correction (see description).
+        use_dc_value : float, optional
+                       Value of the double-counting correction. If specified
+                       `U_interact`, `J_hund` and `use_dc_formula` are ignored.
+
+        """
 
         for icrsh in range(self.n_corr_shells):
 
@@ -697,7 +1016,22 @@ class SumkDFT:
 
 
     def add_dc(self,iw_or_w="iw"):
-        """Substracts the double counting term from the impurity self energy."""
+        r"""
+        Subtracts the double counting term from the impurity self energy.
+        
+        Parameters
+        ----------
+        iw_or_w : string, optional
+
+                  - `iw_or_w` = 'iw' for a imaginary-frequency self-energy
+                  - `iw_or_w` = 'w' for a real-frequency self-energy
+
+        Returns
+        -------
+        sigma_minus_dc : gf_struct_sumk like
+                         Self-energy with a subtracted double-counting term.
+
+        """
 
         # Be careful: Sigma_imp is already in the global coordinate system!!
         sigma_minus_dc = [s.copy() for s in getattr(self,"Sigma_imp_"+iw_or_w)]
@@ -711,7 +1045,21 @@ class SumkDFT:
 
 
     def symm_deg_gf(self,gf_to_symm,orb):
-        """Symmetrises a GF for the given degenerate shells self.deg_shells"""
+        r"""
+        Averages a GF over degenerate shells.
+
+        Degenerate shells of an inequivalent correlated shell are defined by
+        `self.deg_shells`. This function enforces corresponding degeneracies
+        in the input GF.
+
+        Parameters
+        ----------
+        gf_to_symm : gf_struct_solver like
+                     Input GF.
+        orb : int
+              Index of an inequivalent shell.
+
+        """
 
         for degsh in self.deg_shells[orb]:
             ss = gf_to_symm[degsh[0]].copy()
@@ -721,20 +1069,47 @@ class SumkDFT:
             for bl in degsh: gf_to_symm[bl] << ss
 
 
-    def total_density(self, mu=None):
-        """
-        Calculates the total charge for the energy window for a given chemical potential mu. 
+    def total_density(self, mu=None, with_Sigma=True, with_dc=True):
+        r"""
+        Calculates the total charge within the energy window for a given chemical potential. 
+        The chemical potential is either given by parameter `mu` or, if it is not specified,
+        taken from `self.chemical_potential`.
+
+        The total charge is calculated from the trace of the GF in the Bloch basis.
+        By deafult, a full interacting GF is used. To use the non-interacting GF, set
+        parameter `with_Sigma = False`.
+
+        The number of bands within the energy windows generally depends on `k`. The trace is
+        therefore calculated separately for each `k`-point.
+
         Since in general n_orbitals depends on k, the calculation is done in the following order:
-        G_aa'(k,iw) -> n(k) = Tr G_aa'(k,iw) -> sum_k n_k
+        ..math:: n_{tot} = \sum_{k} n(k),
+          with
+        ..math:: n(k) = Tr G_{\nu\nu'}(k, i\omega_{n}).
 
-        The calculation is done in the global coordinate system, if distinction is made between local/global!
+        The calculation is done in the global coordinate system, if distinction is made between local/global.
+
+        Parameters
+        ----------
+        mu : float, optional
+             Input chemical potential. If not specified, `self.chemical_potential` is used instead.
+        with_Sigma : boolean, optional
+             If `True` the full interacing GF is evaluated, otherwise the self-energy is not
+             included and the charge would correspond to a non-interacting system.
+        with_dc : boolean, optional
+             Whether or not to subtract the double-counting term from the self-energy.
+
+        Returns
+        -------
+        dens : float
+               Total charge :math:`n_{tot}`.
+
         """
-
         if mu is None: mu = self.chemical_potential
         dens = 0.0
         ikarray = numpy.array(range(self.n_k))
         for ik in mpi.slice_array(ikarray):
-            G_latt_iw = self.lattice_gf(ik = ik, mu = mu, iw_or_w = "iw")
+            G_latt_iw = self.lattice_gf(ik=ik, mu=mu, iw_or_w="iw", with_Sigma=with_Sigma, with_dc=with_dc)
             dens += self.bz_weights[ik] * G_latt_iw.total_density()
         # collect data from mpi:
         dens = mpi.all_reduce(mpi.world, dens, lambda x,y : x+y)
@@ -744,18 +1119,36 @@ class SumkDFT:
 
 
     def set_mu(self,mu):
-        """Sets a new chemical potential"""
+        r"""
+        Sets a new chemical potential.
 
+        Parameters
+        ----------
+        mu : float
+             New value of the chemical potential.
+
+        """
         self.chemical_potential = mu
 
 
-    def calc_mu(self, precision = 0.01):
-        """
-        Searches for mu in order to give the desired charge
-        A desired precision can be specified in precision.
-        """
+    def calc_mu(self, precision=0.01):
+        r"""
+        Searches for the chemical potential that gives the DFT total charge.
+        A simple bisection method is used.
 
-        F = lambda mu : self.total_density(mu = mu)
+        Parameters
+        ----------
+        precision : float, optional
+                    A desired precision of the resulting total charge.
+
+        Returns
+        -------
+        mu : float
+             Value of the chemical potential giving the DFT total charge
+             within specified precision.
+
+        """
+        F = lambda mu : self.total_density(mu=mu)
         density = self.density_required - self.charge_below
 
         self.chemical_potential = dichotomy.dichotomy(function = F,
@@ -767,8 +1160,30 @@ class SumkDFT:
         return self.chemical_potential
  
 
-    def calc_density_correction(self,filename = 'dens_mat.dat'):
-        """ Calculates the density correction in order to feed it back to the DFT calculations."""
+    def calc_density_correction(self, filename='dens_mat.dat'):
+        r"""
+        Calculates the charge density correction and stores it into a file.
+        
+        The charge density correction is needed for charge-self-consistent DFT+DMFT calculations.
+        It represents a density matrix of the interacting system defined in Bloch basis
+        and it is calculated from the sum over Matsubara frequecies of the full GF,
+
+        ..math:: N_{\nu\nu'}(k) = \sum_{i\omega_{n}} G_{\nu\nu'}(k, i\omega_{n})
+        
+        The density matrix for every `k`-point is stored into a file.
+
+        Parameters
+        ----------
+        filename : string
+                   Name of the file to store the charge density correction.
+
+        Returns
+        -------
+        (deltaN, dens) : tuple
+                         Returns a tuple containing the density matrix `deltaN` and
+                         the corresponing total charge `dens`.
+
+        """
 
         assert type(filename) == StringType, "calc_density_correction: filename has to be a string!"
 
@@ -833,7 +1248,7 @@ class SumkDFT:
                         fout.write("%s\n"%self.n_orbitals[ik,isp])
                         for inu in range(self.n_orbitals[ik,isp]):
                             for imu in range(self.n_orbitals[ik,isp]):
-                                fout.write("%.14f  %.14f "%(deltaN[bn][ik][inu,imu].real,deltaN[bn][ik][inu,imu].imag))
+                                fout.write("%.14f  %.14f "%(deltaN[sp][ik][inu,imu].real,deltaN[sp][ik][inu,imu].imag))
                             fout.write("\n")
                         fout.write("\n")
                     fout.close()
@@ -843,31 +1258,6 @@ class SumkDFT:
 ################
 # FIXME LEAVE UNDOCUMENTED
 ################
-
-    # FIXME Merge with calc_mu?
-    def calc_mu_nonint(self, dens_req, orb = None, precision = 0.01):
-
-        def F(mu):
-            gnonint = self.extract_G_loc(mu = mu, with_Sigma = False)
-
-            if orb is None:
-                dens = 0.0
-                for ish in range(self.n_inequiv_shells):
-                    dens += gnonint[ish].total_density()
-            else:
-                dens = gnonint[orb].total_density()
-
-            return dens
-
-
-        self.chemical_potential = dichotomy.dichotomy(function = F,
-                                         x_init = self.chemical_potential, y_value = dens_req,
-                                         precision_on_y = precision, delta_x = 0.5, max_loops = 100, 
-                                         x_name = "Chemical Potential", y_name = "Total Density",
-                                         verbosity = 3)[0]
-
-        return self.chemical_potential
-
 
     def calc_dc_for_density(self,orb,dc_init,dens_mat,density=None,precision=0.01):
         """Searches for DC in order to fulfill charge neutrality.

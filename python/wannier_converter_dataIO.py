@@ -104,6 +104,7 @@ class AsciiIO(Check):
             try:
                 with open(file_to_read, "rb") as input_file:
                     lines = input_file.readlines()
+                    input_file.close()
                     for count_line,line in enumerate(lines):
                         count_words = 0  # we start from the new line
 
@@ -409,6 +410,7 @@ class AsciiIO(Check):
             try:
                 with open(file_to_read, "r") as input_file:
                     lines = input_file.readlines()
+                    input_file.close()
                     for num_line,line in enumerate(lines):
                         # remove comments
                         for a in comment_marker:
@@ -456,6 +458,7 @@ class AsciiIO(Check):
                                 value=""
                                 keyword = ""
 
+
             except IOError:
                 self.report_error("Opening file %s failed!" % file_to_read)
 
@@ -501,7 +504,7 @@ class AsciiIO(Check):
     def verbosity(self,val=None):
         """
 
-        :param val:  potetian new value of verbosity
+        :param val:  potential new value of verbosity
 
         """
         self.report_error("Verbosity cannot be set his way!")
