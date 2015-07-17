@@ -421,7 +421,9 @@ class AsciiIO(Check):
 
 
                         if line.strip():  # ignore blank lines
-                            words_in_line = line.replace("="," ").replace(":"," ").split()
+                            current_line=line.replace("="," ").replace(":"," ")
+                            words_in_line=current_line.split()
+
                             if words_in_line[0].lower() == "end" and in_block: # end of block
 
                                 in_block = False
@@ -450,11 +452,11 @@ class AsciiIO(Check):
                                 if words_in_line[0].lower() in variable_list_temp:
                                     keyword = words_in_line[0].lower()
                                     variable_list_temp.remove(keyword)
-                                    value=line[line.find(words_in_line[0])+len(keyword):]
+                                    value=current_line[line.find(words_in_line[0])+len(keyword):]
                                 else:
                                     self.report_warning("Redefinition of keyword in line %s"%(num_line+1)) #first line is marked as 1
                             if not in_block and keyword != "":
-                                default_dic[keyword] = value
+                                default_dic[keyword] = value.strip()
                                 value=""
                                 keyword = ""
 

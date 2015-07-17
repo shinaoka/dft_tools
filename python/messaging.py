@@ -214,6 +214,18 @@ class Check(Report):
                             self._check_if_parameter_changed(parameter_name=parameter_name,
                                                          new_par=new_par[item],
                                                          old_par=old_par[item])
+
+                        elif isinstance(new_par[item], list):
+                            self._check_if_parameter_changed(parameter_name=parameter_name,
+                                                         new_par=new_par[item],
+                                                         old_par=old_par[item])
+
+                        elif isinstance(new_par[item], dict):
+                             self._check_if_parameter_changed(parameter_name=parameter_name,
+                                                         new_par=new_par[item],
+                                                         old_par=old_par[item])
+
+
                         elif new_par[item] in old_par:
                             self._check_if_parameter_changed(parameter_name=parameter_name,
                                                          new_par=new_par[item],
@@ -239,6 +251,16 @@ class Check(Report):
                                                              new_par=new_par[item],
                                                              old_par=old_par[item])
 
+                        elif isinstance(new_par[item], list):
+                            self._check_if_parameter_changed(parameter_name=parameter_name,
+                                                         new_par=new_par[item],
+                                                         old_par=old_par[item])
+
+                        elif isinstance(new_par[item], dict):
+                             self._check_if_parameter_changed(parameter_name=parameter_name,
+                                                         new_par=new_par[item],
+                                                         old_par=old_par[item])
+
                         elif item in old_par:
                             self._check_if_parameter_changed(parameter_name=parameter_name,
                                                              new_par=new_par[item],
@@ -262,8 +284,7 @@ class Check(Report):
             else:
                 self.report_par_change(item=parameter_name)
 
-        elif (new_par != old_par and not
-        (new_par is None or old_par == "None")):
+        elif not (new_par is None or old_par == "None") and new_par != old_par:
 
             self.report_par_change(item=parameter_name)
 

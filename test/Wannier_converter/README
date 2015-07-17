@@ -1,0 +1,77 @@
+Description of tests:
+
+
+1) Test for validity of constructing shells from *.win file
+   
+   Files: proj.win, test_proj.py
+
+   Description:
+   In proj.win file hypothetical projection is stored. In this test it is verified whether 
+   wannier_converter  can properly transform block:
+
+   begin projections
+   -----------------
+   -----------------
+  
+   end projections
+
+   into shells (sort parameter is evaluate later basing on data from Hr file). 
+   "------"  symbolizes valid entry with projection (or projections) written in the format accepted by wannier90. 
+
+   Features tested within this benchmark:   
+
+      * Various possible formats of projections are used (chapter 3 from Wannier90 User Guide). 
+
+      * It is checked if comment sections are correctly detected. 
+
+      * It is checked if lower/upper cases in names of projections are treated properly 
+        (should be case letter invariance) 
+
+2) Test for validity of reading parameters from *.win file
+
+   Files: LaTiO3.win, test_win.py
+
+   Description:
+   In this benchmark a realistic case of LaTiO3 with Ti t2g and  O2p states in local Hamiltonian is considered. 
+   It is verified if data is read properly from LaTiO3.win file (all content of win file is provided here directly from wannier90 calculations).
+   
+   Features tested within this benchmark:
+   
+       * It is checked if lower/upper cases letters are treated as the same (Fortran style)
+
+
+       * Various ways of keywords are used:
+
+               num_wann 4
+              
+               num_wann = 4
+
+               num_wann : 4    
+ 
+          and it is checked if in all cases the keyword is read properly.
+
+       * It is tested if attributes of wannier converter are extracted properly from data which was read from *.win file
+
+3) Test DMFT calculation correctness in case of SrVO3 (only t2g orbitals included in calculations)
+
+   Files: SrVO3.win, SrVO3_hr.dat, SrVO3.chk.fmt, wannier_converter_dft_dmft_cthyb.py
+ 
+   Description:
+
+   SrVO3.win stores input for wannier90. SrVO3_hr.dat is one of output files of wannier90. 
+   SrVO3_hr.dat stores a real representation of local Hamiltonian expressed in MLWFs. 
+   SrVO3.chk.fmt is a file which stores  formatted (machine independent) data. SrVO3.chk.fmt stores 
+   information required to restart the calculation of wannier90 or enter the plotting phase which is performed by wannier90. 
+   In particular it stores U matrices (called projectors in TRIQS). wannier_converter_dft_dmft_cthyb.py is a modified 
+   version of  dft_dmft_cthyb.py from core SumKDFT (only few lines have been changed to keep  maximum  compatibility).
+   In order to optimize space resulting SrVO3.h5 is not included in the repository.
+   SrVO3.h5 can easily be created by running this benchmark.
+   
+   Features tested within this benchmark:
+
+      (*) Test if rerun is  correct has been done
+
+      ******** Benchmark in progress *************
+
+
+ 
