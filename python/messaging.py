@@ -349,7 +349,7 @@ class Check(Report):
         """
         if mpi.is_master_node():
             try :
-                ar = HDFArchive(self._filename + ".h5", "a")
+                ar = HDFArchive(self.hdf_file, "a")
                 if not name in ar: ar.create_group(name)
                 ar[name].update(dictionary)
 
@@ -382,7 +382,7 @@ class Check(Report):
         self._parameters_to_check=dictionary
         if mpi.is_master_node():
             try:
-                ar = HDFArchive(self._filename + ".h5", "a")
+                ar = HDFArchive(self.hdf_file, "a")
                 if hdf_dir in ar:
                     old_parameters={}
                     for item in items_to_check:
@@ -588,12 +588,12 @@ class Save(Report):
 
              try:
 
-                ar = HDFArchive(self._filename + ".h5", "a")
+                ar = HDFArchive(self.hdf_file, "a")
 
 
                 if not (name in ar):
 
-                    self.report_warning("""Directory %s not found."""%name)
+                    self.report_warning("""Directory %s not found. Calculations from scratch."""%name)
                     ar.create_group(name)
 
 

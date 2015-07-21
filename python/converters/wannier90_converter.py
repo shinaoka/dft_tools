@@ -131,7 +131,8 @@ class Wannier90Converter(Check, ConverterTools, Save):
     corr_shells_keywords = ["atom", "sort", "l", "dim", "SO", "irep"]
     shells_keywords = ["atom", "sort", "l", "dim"]
 
-    def __init__(self, filename=None, extra_par_file=None, dft_subgrp="SumK_DFT"):
+
+    def __init__(self, filename=None, extra_par_file=None, dft_subgrp="SumK_DFT", repacking = False):
 
         """Constructor for Wannier90Converter object.
 
@@ -177,6 +178,9 @@ class Wannier90Converter(Check, ConverterTools, Save):
         self.density_required = None  # total number of electrons
 
         self.ham_nkpt = None  # vector with three elements which defines k-point grid
+
+        self.hdf_file=None    # hdf_filename name of hdf file where input data for DMFT are stored.
+                              # This is also a name of file in which output from DMFT is stored.
 
         self.inequiv_to_corr = None  # mapping: inequivalent correlated shell -> correlated shell
 
@@ -267,17 +271,35 @@ class Wannier90Converter(Check, ConverterTools, Save):
 
         self._extra_par = {"num_zero": 0.0001, "verbosity": 2}  # definition of parameters from extra_par_file
 
-        self._extra_par_file = None  # name of file with some extra parameters (num_zero, verbosity, T)
+        # self._extra_par_file:  name of file with some extra parameters (num_zero, verbosity, T)
+        if isinstance(extra_par_file, str):
+            self._extra_par_file = extra_par_file
+        elif extra_par_file is None:
+            self._extra_par_file="None"
+            self.make_verbose_statement("Default values will be used")
+        else:
+            self.report_error("Give a string for keyword 'extra_par_file' so that additional  "
+                              "parameters can be read!")
 
-        self._filename = None  # core name of important files: filename_hr.dat,
-        #                       filename.h5, filename.win, filename_up.win,
-        #                       filename_down.win, filename.chk.fmt,
-        #                       filename_up.chk.fmt, filename_down.chk.fmt
+        # self._filename:       core name of important files: filename_hr.dat,
+        #                                                     filename.h5,
+        #                                                     filename.win,
+        #                                                     filename_up.win,
+        #                                                     filename_down.win,
+        #                                                     filename.chk.fmt,
+        #                                                     filename_up.chk.fmt,
+        #                                                     filename_down.chk.fmt
 
+        if isinstance(filename, str):
+            self._filename = filename
+        else:
+            self.report_error("Give a string for keyword 'filename' so that input "
+                              "Hamiltonian can be read from filename_hr.dat and "
+                              "DMFT calculations can be saved into filename.h5!")
 
+        self.hdf_file=self._filename+".h5"
 
-
-        self._name2SpinChannel = None  # defines mapping between name of file and spin channel
+        self._name2SpinChannel = None # defines mapping between name of file and spin channel
 
         self._num_zero = None  # definition of numerical zero
 
@@ -287,7 +309,14 @@ class Wannier90Converter(Check, ConverterTools, Save):
 
         self._parameters = None  # parameters specific for Wannier converter
 
-        self._sumk_dft = None  # folder in hdf file where dft input data is stored (both sumkdft and wannier converter)
+        #self._sumk_dft:  folder in hdf file where dft input data is stored (both sumkdft and wannier converter)
+
+        if isinstance(dft_subgrp, str):
+            self._sumk_dft = dft_subgrp
+        else:
+            self.report_error(""""Give a name for a folder in hdf5 in
+                              which results from sumk_dft will be kept!""")
+
 
         self._u_matrix = None  # transformation from (pseudo)-Bloch to MLWF
 
@@ -328,29 +357,18 @@ class Wannier90Converter(Check, ConverterTools, Save):
                         "num_wann": None,
                         "num_bands": -1}
 
+        # Checks if h5 file is there and repacks it if wanted:
+        if isinstance(repacking,bool):
+            if repacking:
+                try:
+                     ar=HDFArchive(self.hdf_file,'r')
+                     del ar
+                     self.repack() # taken from ConverterTools
+                except IOError :
+                    self.make_statement("No %s was found. No repacking has been performed."%self.hdf_file)
 
-
-        if isinstance(filename, str):
-            self._filename = filename
         else:
-            self.report_error("Give a string for keyword 'filename' so that input "
-                              "Hamiltonian can be read from filename_hr.dat and "
-                              "DMFT calculations can be saved into filename.h5!")
-
-        if isinstance(extra_par_file, str):
-            self._extra_par_file = extra_par_file
-        elif extra_par_file is None:
-            self._extra_par_file="None"
-            self.make_verbose_statement("Default values will be used")
-        else:
-            self.report_error("Give a string for keyword 'extra_par_file' so that additional  "
-                              "parameters can be read!")
-
-        if isinstance(dft_subgrp, str):
-            self._sumk_dft = dft_subgrp
-        else:
-            self.report_error(""""Give a name for a folder in hdf5 in
-                              which results from sumk_dft will be kept!""")
+            self.report_error("Invalid value of repacking for 'repacking' keyword. Bool value is expected!")
 
     def convert_dft_input(self, corr_shells=None):
         """
@@ -511,11 +529,10 @@ class Wannier90Converter(Check, ConverterTools, Save):
         self.k_point_mesh = None
 
         # parameters needed by both rerun and fresh run
-        self.n_k = self.ham_nkpt[0] * self.ham_nkpt[1] * self.ham_nkpt[2] #number of k-points
+
         self._parameters={"num_zero": self._num_zero,
                           "verbosity": self._verbosity,
                           "ham_nkpt": self.ham_nkpt}
-        self._n_spin=self.SP+1-self.SO
 
         self.__h_to_triqs()
         self._get_density_required()
@@ -535,11 +552,6 @@ class Wannier90Converter(Check, ConverterTools, Save):
                 self._user_shells=True
             else:
                 self._user_shells=False
-                
-            # self._read_win_file()
-            self._name2SpinChannel={self._filename+"_up": 0,
-                                    self._filename+"_down": 1,
-                                    self._filename: 0 }
 
             self._disentangled_spin={i: False for i in range(self._n_spin)}
 
@@ -547,7 +559,7 @@ class Wannier90Converter(Check, ConverterTools, Save):
             # it is invalid and start to  write file from scratch
 
             if is_master_node():
-                ar = HDFArchive(self._filename+".h5","w")
+                ar = HDFArchive(self.hdf_file,"w")
                 del ar
 
             self._get_T()
@@ -558,7 +570,6 @@ class Wannier90Converter(Check, ConverterTools, Save):
             self.n_orbitals=bcast(self.n_orbitals)
             self._dummy_projectors_used=bcast(self._dummy_projectors_used)
             self._u_matrix_full=bcast(self._u_matrix_full)
-            self.total_Bloch=bcast(self.total_Bloch)
 
             self._produce_hopping()
             self._sumk_dft_par()
@@ -633,32 +644,19 @@ class Wannier90Converter(Check, ConverterTools, Save):
             reader=AsciiIO()
 
             one_channel = False
-
-
-            try:
-
-                with open(self._filename+".win") as input_file:
-                    one_channel = True
-                    input_file.close()
-
-            except IOError:
-
-                try:
-
-                    with open(self._filename+"up.win") as input_file_1, open(self._filename+"down.win") as input_file_2:
-                        input_file_1.close()
-                        input_file_2.close()
-
-                except IOError:
-
-                    self.report_error("Couldn't find any of the following obligatory files (option 1) or 2) ): "+
-                                      "1) "+self._filename+".win or"+
-                                      "2) "+self._filename+"up.win and "+self._filename+"down.win " )
+            if isfile(self._filename+".win"):
+                one_channel = True
+            elif not (isfile(self._filename+"up.win") and isfile(self._filename+"down.win")):
+                self.report_error("Couldn't find any of the following obligatory files (option 1) or 2) ): "+
+                                  "1) "+self._filename+".win or"+
+                                  "2) "+self._filename+"up.win and "+self._filename+"down.win " )
 
             if one_channel:
 
                 reader.read_ASCII_fortran_file(file_to_read=self._filename+".win",default_dic=self._win_par)
                 self._get_spinors()
+                self._get_total_MLWF()
+                self.total_Bloch=self._get_num_bands(dictionary=self._win_par)
                 self.SP=0
 
             else:
@@ -671,19 +669,25 @@ class Wannier90Converter(Check, ConverterTools, Save):
                     if cmp(self._win_par[entry],temp_par[entry])!=0:
                         self.report_error("Files"+self._filename+"up.win and "+self._filename+"down.win are inconsistent!" )
 
+                self._get_total_MLWF()
+                winBloch=self._get_num_bands(dictionary=self._win_par)
+                tempBloch=self._get_num_bands(dictionary=temp_par)
+                self.total_Bloch=max(winBloch,tempBloch)
+
                 self.SO = 0
                 self.SP = 1
 
             # **** calculate parameters for converter based on parameters from win file
             if self.shells is None:
                 self._get_shells()
-            self.n_shells=len(self.shells)
 
             self._get_ham_nkpt()
             self._get_chemical_potential()
-            self._get_total_MLWF()
-            self._get_num_bands()
 
+
+            self.n_shells=len(self.shells)
+            self.n_k = self.ham_nkpt[0] * self.ham_nkpt[1] * self.ham_nkpt[2] #number of k-points
+            self._n_spin=self.SP+1-self.SO
             self._disentanglement=(self.total_MLWF!=self.total_Bloch)
 
             # **** read extra parameters ****
@@ -720,11 +724,19 @@ class Wannier90Converter(Check, ConverterTools, Save):
                 self.make_statement("No additional output will be printed out from lattice module.")
                 self._verbosity = "None"
 
+        self._name2SpinChannel={self._filename+"_up": 0,
+                                self._filename+"_down": 1,
+                                self._filename: 0 }
+
         # brodcasting input from *.win file
         bcast_items=["shells", "n_shells", "ham_nkpt", "SO", "SP", "_disentanglement", "total_MLWF",
-                     "total_Bloch", "chemical_potential","_num_zero","_verbosity","_wannier_order"]
+                     "total_Bloch", "chemical_potential","_num_zero","_verbosity","_wannier_order","_name2SpinChannel",
+                     "n_k", "_n_spin"]
         for it in bcast_items:
                 exec "self.%s = bcast(self.%s)"%(it,it)
+
+
+        self.make_statement("Information from formatted file %s.win file has been read."%self._filename)
 
     def _get_spinors(self):
         """
@@ -1007,12 +1019,19 @@ class Wannier90Converter(Check, ConverterTools, Save):
         except ValueError:
             self.report_error("Invalid number of MLWFs!")
 
-    def _get_num_bands(self):
+    def _get_num_bands(self, dictionary=None):
 
-        if self._win_par["num_bands"]== -1 :
-            self.total_Bloch=self.total_MLWF
-        else:
-            self.total_Bloch=self._win_par["num_bands"]
+        """
+
+        :param dictionary:
+        """
+        try :
+            if dictionary["num_bands"]== -1 :
+                return self.total_MLWF
+            else:
+                return int(self._win_par["num_bands"])
+        except ValueError:
+            self.report_error("no 'num_bands' keyword in the dictionary!")
 
     def _get_T(self):
         self.T = []
@@ -1203,8 +1222,9 @@ class Wannier90Converter(Check, ConverterTools, Save):
             self._get_corr_shells()
         self.n_corr_shells=len(self.corr_shells)
 
-        # Determine the number of inequivalent correlated shells
+        # Determine the number of inequivalent correlated shells (taken from ConverterTools)
         self.n_inequiv_corr_shells, self.corr_to_inequiv, self.inequiv_to_corr=self.det_shell_equivalence(corr_shells=self.corr_shells)
+
 
         # 4) Construct symmetry operators
         self._R_sym=[]
@@ -1426,13 +1446,12 @@ class Wannier90Converter(Check, ConverterTools, Save):
         found_all = True
         try:
             if is_master_node():
-                if isfile(self._filename + ".h5"):
-                    ar = HDFArchive(self._filename + ".h5", "a")
+                if isfile(self.hdf_file):
+                    ar = HDFArchive(self.hdf_file, "a")
                     if subgrp not in ar:
 
                         self.report_warning(
-                            "%s not found in %s.h5 file. %s.h5 will be created from scratch. " % (subgrp,
-                                                                                                  self._filename,                                                                          self._filename))
+                            "%s not found in %s file. %s will be created from scratch. " % (subgrp, self.hdf_file,  self.hdf_file))
                         found_all = False
 
                     else:
@@ -1447,7 +1466,7 @@ class Wannier90Converter(Check, ConverterTools, Save):
                                 else:
                                     self.report_warning("%s not found!" % it)
 
-                                self.report_warning("%s.h5 will be created from scratch." % self._filename)
+                                self.report_warning("%s will be created from scratch." % self.hdf_file)
                                 found_all = False
                                 break
 
@@ -1457,7 +1476,7 @@ class Wannier90Converter(Check, ConverterTools, Save):
             found_all = bcast(found_all)
 
         except IOError:
-            self.report_warning("Opening file %s.h5 failed!" % self._filename)
+            self.report_warning("Opening file %s failed!" % self.hdf_file)
             found_all = False
 
         if found_all and not just_check:
@@ -1687,10 +1706,27 @@ class Wannier90Converter(Check, ConverterTools, Save):
         return n_orb,offset
 
 
-    def _set_U_matrices_None(self):
+    def _set_U_None(self):
         """
-        to be used in case no valid *win or *.chk.fmt file were find.
-        Sets the following objects related to projections to None:
+        Sets the following objects related to projections to empty numpy arrays:
+
+            * u_matrix
+
+            * u_matrix_full
+
+            * u_matrix_opt
+
+            * n_orbitals
+        """
+
+        self._u_matrix=None
+        self._u_matrix_full=None
+        self._u_matrix_opt=None
+
+    def _initialize_U_matrices(self):
+        """
+
+        Sets the following objects related to projections to empty numpy arrays:
 
             * u_matrix
 
@@ -1701,11 +1737,24 @@ class Wannier90Converter(Check, ConverterTools, Save):
             * n_orbitals
 
         """
-        self._u_matrix=None
-        self._u_matrix_full=None
-        self._u_matrix_opt=None
-        self.n_orbitals=None
 
+        self.n_orbitals = numpy.zeros((self.n_k,self._n_spin),numpy.int)
+
+        self._u_matrix_opt=numpy.zeros((self.total_Bloch,
+                                                self.total_MLWF,
+                                                self._n_spin,
+                                                self.n_k),numpy.complex)
+
+        self._u_matrix=numpy.zeros((self.total_MLWF,
+                                            self.total_MLWF,
+                                            self._n_spin,
+                                            self.n_k),numpy.complex)
+
+        self._u_matrix_full=numpy.zeros((self.n_k,
+                                         self._n_spin,
+                                         self.total_MLWF,
+                                         self.total_Bloch),
+                                         numpy.complex)
 
     def _read_chkpt_fmt(self,filename=None):
 
@@ -1726,14 +1775,15 @@ class Wannier90Converter(Check, ConverterTools, Save):
         chkpt_data={}
         dim=3
         dim2=9
+
         try:
 
             with open(filename+".chk.fmt", "r") as input_file:
                 lines = input_file.readlines()
                 input_file.close()
-                self.make_statement("Reading information from formatted file %s.chk.fmt"%filename)
 
-                self.make_verbose_statement(lines.pop(0)) # Print out first line, comment line
+                self.make_verbose_statement("Checkpoint file has been opened. "
+                                            "Checkpoint file was "+ lines.pop(0)) # Print out first line, comment line
 
                 # num_bands
                 try:
@@ -1812,6 +1862,7 @@ class Wannier90Converter(Check, ConverterTools, Save):
                     return
 
                 if self.n_k!=chkpt_data["Number of kpoints"]:
+
                     self.report_error("Different number of kpoints in"
                                       " %s.win  and in  %s.chk.fmt!"%(filename,filename))
 
@@ -1833,6 +1884,7 @@ class Wannier90Converter(Check, ConverterTools, Save):
                 del temp
 
                 if cmp(self.ham_nkpt,chkpt_data["M-P grid"])!=0:
+
                     self.report_error("Different k-point grid  in %s.win"
                                       "  and in  %s.chk.fmt!"%(filename,filename))
 
@@ -1854,7 +1906,7 @@ class Wannier90Converter(Check, ConverterTools, Save):
                                       "in %s.win  and in  %s.chk.fmt!"%(filename,filename))
 
                 # checkpoint
-                chkpt_data["checkpoint"]=lines.pop(0)
+                chkpt_data["checkpoint"]=lines.pop(0).strip()
 
                 # have disentanglement
                 try:
@@ -1872,6 +1924,8 @@ class Wannier90Converter(Check, ConverterTools, Save):
                     self.report_error("Have disentanglement is different in "
                                       "%s.win file and in %s.chk.fmt!"%(filename,filename))
 
+                self._initialize_U_matrices()
+
                 if chkpt_data["Have disentanglement"]:
                     # omega_invariant,  not used in the summary
                     lines.pop(0)
@@ -1882,6 +1936,7 @@ class Wannier90Converter(Check, ConverterTools, Save):
                             lines.pop(0)
 
                     # ndimwin,  number of bands inside energy window
+
                     try:
                         for nkp in range(chkpt_data["Number of kpoints"]):
                             self.n_orbitals[nkp,self._name2SpinChannel[filename]]=int(lines.pop(0))
@@ -1921,22 +1976,14 @@ class Wannier90Converter(Check, ConverterTools, Save):
             self._produce_dummy_projectors()
             return
 
+        self.make_statement("Information from formatted file %s.chk.fmt file has been read."%filename)
+        return chkpt_data
 
     def _produce_full_U_matrix(self):
         """
         Produces full rotation matrix from Bloch states to MLWF
 
         """
-        #  we have 2d array here, first max returns array with maximum
-        #  values from each sub-array second max returns
-        #  maximum value of the whole n_orbitals
-        self.total_Bloch=self.n_orbitals.max().max()
-
-        self._u_matrix_full=numpy.zeros((self.n_k,
-                                         self._n_spin,
-                                         self.total_MLWF,
-                                         self.total_Bloch),
-                                         numpy.complex)
 
         temp_array=numpy.zeros((self.total_Bloch,
                                 self.total_MLWF),
@@ -2001,19 +2048,7 @@ class Wannier90Converter(Check, ConverterTools, Save):
             return
 
         self.proj_mat=None
-        self._set_U_matrices_None()
-
-        self.n_orbitals = numpy.zeros((self.n_k,self._n_spin),numpy.int)
-
-        self._u_matrix_opt=numpy.zeros((self.total_Bloch,
-                                        self.total_MLWF,
-                                        self._n_spin,
-                                        self.n_k),numpy.complex)
-
-        self._u_matrix=numpy.zeros((self.total_MLWF,
-                                    self.total_MLWF,
-                                    self._n_spin,
-                                    self.n_k),numpy.complex)
+        self._initialize_U_matrices()
 
         if is_master_node():
 
@@ -2075,11 +2110,9 @@ class Wannier90Converter(Check, ConverterTools, Save):
         transformed from HR obtained by wannier90.
 
         """
-        self._set_U_matrices_None()
+        self._set_U_None()
 
-        # for dummy case number of Bloch states is equal to number of MLWF
-        self.total_Bloch=self.total_MLWF
-        self.n_orbitals = numpy.ones((self.n_k,self._n_spin),numpy.int) * self.total_Bloch
+        self.n_orbitals = numpy.ones((self.n_k,self._n_spin),numpy.int) * self.total_MLWF
 
         self._produce_projectors_dummy_core()
         self._dummy_projectors_used=True

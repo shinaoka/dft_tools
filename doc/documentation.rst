@@ -44,6 +44,7 @@ This is the reference manual for the python routines.
    reference/sumk_dft_tools
    reference/symmetry
    reference/transbasis
+   reference/messaging
 
 
 FAQs

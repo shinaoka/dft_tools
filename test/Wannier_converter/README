@@ -1,13 +1,15 @@
 Description of tests:
 
 
-1) Test for validity of constructing shells from *.win file
+1) Test for validity of constructed shells from *.win file
    
    Files: proj.win, test_proj.py
 
+   Command: pytriqs test_proj.py  
+
    Description:
-   In proj.win file hypothetical projection is stored. In this test it is verified whether 
-   wannier_converter  can properly transform block:
+   In proj.win file hypothetical projections are stored. In this test it is verified whether
+   wannier90 converter can properly transform block:
 
    begin projections
    -----------------
@@ -15,32 +17,35 @@ Description of tests:
   
    end projections
 
-   into shells (sort parameter is evaluate later basing on data from Hr file). 
-   "------"  symbolizes valid entry with projection (or projections) written in the format accepted by wannier90. 
+   into shells (sort parameter is evaluated later basing on data from *_hr.dat file).
 
-   Features tested within this benchmark:   
+   "------"  symbolizes valid entry with projection (or projections) written in the format accepted by wannier90.
+
+   Tested features within this benchmark:
 
       * Various possible formats of projections are used (chapter 3 from Wannier90 User Guide). 
 
       * It is checked if comment sections are correctly detected. 
 
       * It is checked if lower/upper cases in names of projections are treated properly 
-        (should be case letter invariance) 
+        (should be case letter invariance). 
 
-2) Test for validity of reading parameters from *.win file
+2) Test for validity of read parameters from *.win file
 
    Files: LaTiO3.win, test_win.py
 
+   Command: pytriqs test_win.py
+
    Description:
-   In this benchmark a realistic case of LaTiO3 with Ti t2g and  O2p states in local Hamiltonian is considered. 
-   It is verified if data is read properly from LaTiO3.win file (all content of win file is provided here directly from wannier90 calculations).
+   In this benchmark a realistic case of LaTiO3 with Ti t2g and  O 2p states in the local Hamiltonian is considered.
+   It is verified if data is read properly from LaTiO3.win file (all content of win file is provided here directly
+   from wannier90 calculations). Win file is an input file for wannier90.
    
-   Features tested within this benchmark:
+   Tested features within this benchmark:
    
-       * It is checked if lower/upper cases letters are treated as the same (Fortran style)
+       * It is checked if lower/upper cases letters are treated as the same (Fortran style).
 
-
-       * Various ways of keywords are used:
+       * Various ways of defining keyword-value pair are used:
 
                num_wann 4
               
@@ -48,30 +53,139 @@ Description of tests:
 
                num_wann : 4    
  
-          and it is checked if in all cases the keyword is read properly.
+          and it is checked if in all cases  keywords are read properly.
 
-       * It is tested if attributes of wannier converter are extracted properly from data which was read from *.win file
+       * It is tested if attributes of wannier90 converter are extracted properly 
+         from data which was read from LaTiO3.win file.
 
-3) Test DMFT calculation correctness in case of SrVO3 (only t2g orbitals included in calculations)
+3) Test for validity of reading parameters from *.chk.fmt file
+
+   Files: SrVO3.win, SrVO3.chk.fmt, pytriqs test_chk_fmt.py
+
+   Command: pytriqs test_chk_fmt.py
+
+   Description:
+   In this benchmark a realistic case of SrVO3 is considered  with only V t2g orbitals included. It is verified if data is
+   read correctly from formatted checkpoint file: SrVO3.chk.fmt. SrVO3.chk.fmt is a file which stores  formatted
+   (machine independent) data. SrVO3.chk.fmt stores information required to restart the calculation of wannier90 or
+   enter the plotting phase which is performed by wannier90 (from wannier90  User Guide). In particular it stores 
+   U matrices (called projections in TRIQS). Test for validity of read projections is verified in the next benchmark.
+
+   First data from SrVO3.win is read. Next data from SrVO3.chk.fmt is read.
+   SrVO3.win is needed in this benchmark because while data from SrVO3.chk.fmt is read,
+   it is compared againts already loaded data from SrVO3.win. This is done in order to catch a potential incompatibility
+   between win and checkpoint files. Please pay attention to name convention: if win file is called SrVO3.win then
+   fotmatted checkpoint file must be named SrVO3.chk.fmt.
+
+   Tested features within this benchmark:
+
+        * It is verified if the following keywords are read correctly:
+
+            - "checkpoint",
+
+            - "Have disentanglement",
+
+            - "Number of bands",
+
+            - "Number of exclude bands",
+
+            - "Number of Wannier orbitals",
+
+            - "M-P grid",
+
+            - "Exclude_bands",
+
+            - "Reciprocal lattice",
+
+            - "Number of kpoints",
+
+            - "Real lattice".
+
+4) Test for validity of reading projections  from *.chk.fmt file
+
+   Files: SrVO3.win, SrVO3_hr.dat, SrVO3.chk.fmt, SrVO3_proj.h5, pytriqs test_chk_fmt_proj.py
+
+   Command: pytriqs test_chk_fmt_proj.py
+
+   Descriprion:
+   Converter is initialized and information from SrVO3.win, SrVO3_hr.dat, SrVO3.chk.fmt is read.
+   SrVO3_hr.dat is one of output files of wannier90. SrVO3_hr.dat stores a real representation of local
+   Hamiltonian expressed in MLWFs for SrVO3 with t2g states in the  local Hamiltonian. Basing on read data, shells,
+   correlated shells and projections (U matrices)  are constructed.  File SrVO3_proj.h5 stores reference projections
+   which are compared againts projections constructed in the benchmark.
+
+   Tested features  within this benchmark:
+   
+       * It is verified if  shells are constructed properly,
+       
+       * It is verified if correlated shells are constructed properly.
+       
+       * It is verified if projections are constructed properly.
+
+
+5) Test for correctness of DMFT calculation  in case calculations are started from scratch (only t2g orbitals included in calculations)
 
    Files: SrVO3.win, SrVO3_hr.dat, SrVO3.chk.fmt, wannier_converter_dft_dmft_cthyb.py
+
+   Command: pytriqs  wannier_converter_dft_dmft_cthyb.py
  
    Description:
 
-   SrVO3.win stores input for wannier90. SrVO3_hr.dat is one of output files of wannier90. 
-   SrVO3_hr.dat stores a real representation of local Hamiltonian expressed in MLWFs. 
-   SrVO3.chk.fmt is a file which stores  formatted (machine independent) data. SrVO3.chk.fmt stores 
-   information required to restart the calculation of wannier90 or enter the plotting phase which is performed by wannier90. 
-   In particular it stores U matrices (called projectors in TRIQS). wannier_converter_dft_dmft_cthyb.py is a modified 
-   version of  dft_dmft_cthyb.py from core SumKDFT (only few lines have been changed to keep  maximum  compatibility).
+   wannier_converter_dft_dmft_cthyb.py is a modified version of  dft_dmft_cthyb.py from
+   core SumKDFT (only few lines have been changed to keep  maximum  compatibility).
    In order to optimize space resulting SrVO3.h5 is not included in the repository.
    SrVO3.h5 can easily be created by running this benchmark.
-   
-   Features tested within this benchmark:
 
-      (*) Test if rerun is  correct has been done
+
+   Tested features  within this benchmark:
+
+        * It is verified if initial calculation of chemical potential is valid
+          (should be the same within numerical accuracy to the Fermi level calculated from DFT).
+
+        * one DMFT iteration is run
+
 
       ******** Benchmark in progress *************
+
+6) Test for correctness of DMFT calculation  in case calculations are re-started  (only t2g orbitals included in calculations)
+
+   Files: SrVO3.win, SrVO3_hr.dat, SrVO3.h5, SrVO3.chk.fmt, wannier_converter_dft_dmft_cthyb.py
+
+   Command: pytriqs  wannier_converter_dft_dmft_cthyb.py
+
+   Description:
+   Test is very similar to test 5). However, in this test rerun scenario is considered.
+   Since no SrVO3.h5 is included in the repository test 5) should be run before test 6).
+
+   Tested features within this benchmark:
+
+      (*) Test has been done if rerun is  correct.
+
+
+EXAMPLE OF BASH SCRIPT WHICH CAN BE USED TO RUN BENCHMARKS
+#!/bin/bash
+
+echo "1) Test for validity of constructing shells from *.win file"
+pytriqs test_proj.py> test_proj.log
+
+echo "2) Test for validity of reading parameters from *.win file"
+pytriqs test_win.py> test_win.log
+
+echo "3) Test for validity of reading parameters from *.chk.fmt file"
+pytriqs test_chk_fmt.py> test_chk_fmt.py.log
+
+echo "4) Test for validity of reading projections  from *.chk.fmt file"
+pytriqs test_chk_fmt_proj.py> test_chk_fmt_proj.log
+
+echo "5) Test correctness of DMFT calculation  in case calculations are started from scratch (only t2g orbitals included in calculations)"
+mpirun -np 3 pytriqs  wannier_converter_dft_dmft_cthyb_scratch.py> wannier_converter_dft_dmft_cthyb_scratch.log
+
+echo "6) Test correctness of DMFT calculation  in case calculations are re-started  (only t2g orbitals included in calculations)"
+mpirun -np 3 pytriqs  wannier_converter_dft_dmft_cthyb.py> wannier_converter_dft_dmft_cthyb.log
+
+
+
+
 
 
  

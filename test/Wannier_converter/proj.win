@@ -3,7 +3,7 @@
 
 # Tough example of projections, it 
 # is very unrealistic but combines different 
-# conventions for defining projectons and 
+# conventions for defining projections and
 # is valueable for benchmarks 
 ! test is also done if all formats of comments are treated 
 ! properly (everything after ! or # should be neglected )

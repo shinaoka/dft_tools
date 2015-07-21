@@ -80,13 +80,6 @@ if success:
 else: 
     converter.make_statement("Reading data from win file: test failed!")
 
-# postprocess data from *.win file to get converter attributes
-converter._get_chemical_potential()
-converter._get_ham_nkpt()
-converter._get_shells() # no sort calculated here, it is calculated from data in *_hr.dat!
-converter._get_total_MLWF()
-converter._get_num_bands()
-
 converter_attr={"SO": converter.SO,
                 "SP": converter.SP,
                 "ham_nkpt": converter.ham_nkpt,
@@ -112,7 +105,7 @@ correct_attr={"SO":0,
                          {'dim': 3, 'l': 1, 'atom': 12},
                          {'dim': 3, 'l': 1, 'atom': 13},
                          {'dim': 3, 'l': 1, 'atom': 14},
-                         {'dim': 2, 'l': 1, 'atom': 15}], # should be 3
+                         {'dim': 3, 'l': 1, 'atom': 15}],
                "total_MLWF": 48,
                "total_Bloch": 76}
 
