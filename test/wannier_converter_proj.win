@@ -4,7 +4,7 @@
 # Tough example of projections, it 
 # is very unrealistic but combines different 
 # conventions for defining projections and
-# is valueable for benchmarks 
+# is valuable for benchmarks
 ! test is also done if all formats of comments are treated 
 ! properly (everything after ! or # should be neglected )
 
@@ -15,7 +15,7 @@ Dummy_atom:sp3-1 ! projections  for dummy atom
 dUmmy_atom:sp3-2 # are equivalent to As atom
 duMMy_atom:sp3-3 
 duMMy_Atom:sp3-4
-Cu:d   ! Cu is equivalent to Cu1 and Cu2 
+Cu:d   ! Cu is equivalent to Cu2 and Cu1
 Cu1:dXy:z=0,0,1
 Cu2:dxy;dxZ;dyz;dx2-y2;dZ2:z=0,0,1
 Cu1:dz2:z=0,0,1

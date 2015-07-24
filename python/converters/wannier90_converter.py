@@ -24,7 +24,7 @@ class Wannier90Converter(Check, ConverterTools, Save):
             -  Reads H_R from wannier90.x output file, Fourier transform it to H_k.
                 (method: __h_to_triqs)
 
-            -  Reads projectors from seedname*.chk.fmt file(s) and transforms it to the proper format.
+            -  Reads projections from seedname*.chk.fmt file(s) and transforms it to the proper format.
                seedname*.chk.fmt are formatted checkpoints files,
                (formatted files store data in machine independent way)
                 (method: read_format_chkpt)
@@ -88,18 +88,18 @@ class Wannier90Converter(Check, ConverterTools, Save):
                     Keyword spinors = true in seedname.win is obligatory in this case  and
                     only half of the initial projections should be provided.
 
-            - If seedname*.chk.fmt are not present, dummy projectors in the
+            - If seedname*.chk.fmt are not present, dummy projections in the
               form of rectangular matrices each with block of identity matrix
               which corresponds to the given correlated shell will be calculated,
 
             - If number of shells is larger than number of correlated shells  then seedname*.chk
-              is neglected and dummy projectors are always built,
+              is neglected and dummy projections are always built,
 
-            - Otherwise projectors basing on data from  seedname*.chk.fmt will be constructed.
+            - Otherwise projections basing on data from  seedname*.chk.fmt will be constructed.
               In case seedname*.chk.fmt is present check for consistency
               between seedname*.win and seedname*.chk.fmt will be done.
 
-            In case dummy projectors are built, Hk becomes  hopping integrals.
+            In case dummy projections are built, Hk becomes  hopping integrals.
 
             If there is no *seedname_hr.dat calculation will not start
             (hr_plot  in *seedname.win has to be set to true).
@@ -196,7 +196,7 @@ class Wannier90Converter(Check, ConverterTools, Save):
 
         self.n_shells = None  # number of all shells (both correlated and non-correlated)
 
-        self.proj_mat = None  # projectors for DMFT calculations
+        self.proj_mat = None  # projections for DMFT calculations
 
         self.rot_mat = None  # rotation matrices for symmetry equivalent sites
 
@@ -267,7 +267,7 @@ class Wannier90Converter(Check, ConverterTools, Save):
 
         self._disentanglement = None  # whether we have disentanglement or not
 
-        self._dummy_projectors_used = False # defines whether or not dummy projectors are in use
+        self._dummy_projections_used = False # defines whether or not dummy projections are in use
 
         self._extra_par = {"num_zero": 0.0001, "verbosity": 2}  # definition of parameters from extra_par_file
 
@@ -563,12 +563,12 @@ class Wannier90Converter(Check, ConverterTools, Save):
                 del ar
 
             self._get_T()
-            self._produce_projectors()
+            self._produce_projections()
 
             # bcasting
             self.proj_mat=bcast(self.proj_mat)
             self.n_orbitals=bcast(self.n_orbitals)
-            self._dummy_projectors_used=bcast(self._dummy_projectors_used)
+            self._dummy_projections_used=bcast(self._dummy_projections_used)
             self._u_matrix_full=bcast(self._u_matrix_full)
 
             self._produce_hopping()
@@ -1059,7 +1059,7 @@ class Wannier90Converter(Check, ConverterTools, Save):
         Calculates transformation  matrix K for T from the convention defined by initial projections in *.win file (A)
         to 'wien2k' convention (B). The dimension of the transformation matrix is defined by angular
         momentum l for the correlated shell in interest. Inequivalent correlated shell which corresponds to
-        the particular T matrix is defined by n_corr. Assumption is made that initial projectors should be relatively
+        the particular T matrix is defined by n_corr. Assumption is made that initial projections should be relatively
         close to the final MLWF, so for example we don't try to obtain dxy-like MLWF from initial projection pz orbital.
 
 
@@ -1124,22 +1124,26 @@ class Wannier90Converter(Check, ConverterTools, Save):
         """
         Calculate required occupancy of the local Hamiltonian basing on the Fermi
         energy from *.win file and real representation of Hamiltonian in MLWFs from *hr.dat.
-        :return:
         """
-        energy = self.chemical_potential*self._n_spin*self.n_k
-        temp_en = 0.0
-        occ = 0.0
 
-        for orb1 in range(self.total_MLWF):
-            for orb2 in range(self.total_MLWF):
-                for n_s in range(self._n_spin):
-                    for ikpt in range(self.n_k):
-                        if temp_en >= energy:
-                            self.density_required=occ/self.n_k
-                            return
-                        else:
-                            temp_en += self.Hk[ikpt][n_s][orb1, orb2]
-                            occ+=1
+        occ = 0.0
+        indices_kpt=numpy.array(range(self.n_k))
+        for n_s in range(self._n_spin):
+            #parallelization over n_k
+            for ikpt in slice_array(indices_kpt):
+                occ_part=0.0
+                temp_eig,temp_rot_mat=numpy.linalg.eigh(self.Hk[ikpt][n_s])
+                for eig in temp_eig:
+                   if eig <= self.chemical_potential:
+                        occ_part+=1.0
+                occ+=all_reduce(world,occ_part,lambda x, y: x + y)
+                barrier()
+        self.density_required=occ/self.n_k
+
+        # case of the spinless calculation
+        if self._n_spin==1:
+            self.density_required*=2
+
 
     def __h_to_triqs(self):
         """
@@ -1190,43 +1194,46 @@ class Wannier90Converter(Check, ConverterTools, Save):
                               " and in %s.win files"%(self._filename,self._filename))
 
         if not self._user_shells:
-            # 2) Evaluate "sort" for shells. Evaluation is based on the comparison of
-            #    eigenvalues of H_00 block for each shell. H_00 is real representation of
-            #    Hamiltonian represented in MLWFs which correspond to R=[0 ,0 ,0 ]
+            # 2) Evaluates "sort" for shells. Evaluation is based on the comparison of
+            #    eigenvalues of H_00 block for each shell. H_00 is a real representation of
+            #    the Hamiltonian represented in MLWFs which corresponds to R=[0 ,0 ,0 ]
 
             n_orb=self.shells[0]["dim"]
             total_orb=0
             temp_eig,temp_rot_mat=numpy.linalg.eigh(ham_r[total_orb:total_orb+n_orb,total_orb:total_orb+n_orb])
+            t1=temp_eig.argsort()
             last_sort=0
-            all_sorts={last_sort: deepcopy(temp_eig)}
-            self.shells[0]["sort"]=0
+            all_sorts={last_sort: deepcopy(temp_eig[t1])} # save sorted values
+            self.shells[0]["sort"]=last_sort
 
             for ish in range(1,self.n_shells):
                  old_sort_found=False
                  n_orb=self.shells[ish]["dim"]
-                 temp_eig,temp_rot_mat=numpy.linalg.eigh(ham_r[total_orb:total_orb+n_orb,total_orb:total_orb+n_orb])
-                 for sort_item in all_sorts.keys():
-                    # old sort found
-                    if numpy.min(numpy.abs(temp_eig.argsort()-all_sorts[sort_item].argsort()))<self._num_zero:
-                        self.shells[ish]["sort"]=sort_item
+                 temp_eig, temp_rot_mat=numpy.linalg.eigh(ham_r[total_orb:total_orb+n_orb,total_orb:total_orb+n_orb])
+                 t1=temp_eig.argsort()
+                 for sort_item in all_sorts:
+                    if cmp(temp_eig.shape, all_sorts[sort_item].shape)==0 and  self._num_zero> numpy.min(numpy.abs(temp_eig[t1]-
+                                                                                                                   all_sorts[sort_item])):
                         old_sort_found=True
+                        self.shells[ish]["sort"]=sort_item
                         break
                  if not old_sort_found:
                      last_sort+=1
-                     all_sorts[last_sort]=deepcopy(temp_eig)
+                     self.shells[ish]["sort"]=last_sort
+                     all_sorts[last_sort]=deepcopy(temp_eig[t1]) # save sorted values
 
                  total_orb += n_orb
 
-            # 3)  Find correlated shells
+            # 3)  Finds correlated shells
 
             self._get_corr_shells()
         self.n_corr_shells=len(self.corr_shells)
 
-        # Determine the number of inequivalent correlated shells (taken from ConverterTools)
+        # Determines the number of inequivalent correlated shells (taken from ConverterTools)
         self.n_inequiv_corr_shells, self.corr_to_inequiv, self.inequiv_to_corr=self.det_shell_equivalence(corr_shells=self.corr_shells)
 
 
-        # 4) Construct symmetry operators
+        # 4) Constructs symmetry operators
         self._R_sym=[]
         for n_corr in range(self.n_corr_shells):
 
@@ -1249,6 +1256,7 @@ class Wannier90Converter(Check, ConverterTools, Save):
 
         local_shells=[ {} for n in range(self.n_shells)]
         total_orb=0
+
         for ish in range(self.n_shells):
 
              n_orb=self.shells[ish]["dim"]
@@ -1258,7 +1266,7 @@ class Wannier90Converter(Check, ConverterTools, Save):
              local_shells[ish]["eig"]=temp_eig[temp_indx]
              local_shells[ish]["rot_mat"]=temp_rot_mat[:,temp_indx]
 
-             #check if shell is a correlated shell if so write eigenvectors to rotation which corresponds to it
+             # Checks if shell is a correlated shell if so write eigenvectors to rotation which corresponds to it
              for icrsh in range(self.n_corr_shells):
 
                  if self.compare_shells(shell=self.shells[ish],
@@ -1272,16 +1280,16 @@ class Wannier90Converter(Check, ConverterTools, Save):
              # block of ham_r, it is ok because we look for spacial symmetry here
              total_orb+=n_orb
 
-        #check if initial projections from *win file are consistent with shells provided in the input file
+        # Check if initial projections from *win file are consistent with shells provided in the input file
         if self._user_shells:
             for ish1 in range(self.n_shells):
+                t1=local_shells[ish1]["eig"].argsort()
                 for ish2 in range(self.n_shells):
-
                     #equivalent shell found
                     if self.is_shell(self.shells[ish1], self.shells[ish2]):
-
-                        if  self._num_zero < numpy.min(numpy.abs(local_shells[ish1]["eig"].argsort()-
-                                                                 local_shells[ish2]["eig"].argsort())):
+                        t2=local_shells[ish2]["eig"].argsort()
+                        if  self._num_zero < numpy.min(numpy.abs(local_shells[ish1]["eig"][t1]-
+                                                                local_shells[ish2]["eig"][t2])):
                             self.report_error("Wrong block structure of input Hamiltonian,"
                                             " correct it please (maybe num_zero parameter is set too low?)!")
                             break
@@ -1328,7 +1336,7 @@ class Wannier90Converter(Check, ConverterTools, Save):
 
                 barrier()
 
-        # 6) update parameters dictionary
+        # 6) Updates parameters dictionary
 
         Variables = {"k_point_mesh": self.k_point_mesh, "FULL_H_R": self.FULL_H_R,
                      "Vector_R": self.Vector_R,
@@ -1655,6 +1663,7 @@ class Wannier90Converter(Check, ConverterTools, Save):
         if not self.check_shell(corr_shell, t=self.__class__.corr_shells_keywords):
             self.report_error("Correlated shell was expected!")
         if not self.check_shell(shell,t=self.__class__.shells_keywords):
+
             self.report_error("Shell was expected!")
 
         return (shell["atom"]==corr_shell["atom"] and
@@ -1723,6 +1732,20 @@ class Wannier90Converter(Check, ConverterTools, Save):
         self._u_matrix_full=None
         self._u_matrix_opt=None
 
+    def _set_proj_mat_dummy(self):
+        """
+        Redefines the projection matrices in case dummy projections are used.
+        In scenario in dummy projections are used number of MLWF and Bloch states is assumed to be the same.
+        """
+        
+        self.total_Bloch=self.total_MLWF
+        self.proj_mat = numpy.zeros((self.n_k,
+                                     self._n_spin,
+                                     self.n_corr_shells, max([crsh['dim'] for crsh in self.corr_shells]),
+                                     self.total_Bloch),numpy.complex)
+        self.n_orbitals = numpy.ones((self.n_k,self._n_spin),numpy.int) * self.total_Bloch
+
+
     def _initialize_U_matrices(self):
         """
 
@@ -1769,7 +1792,7 @@ class Wannier90Converter(Check, ConverterTools, Save):
         :type filename: str
 
         """
-        err_msg="Dummy projectors (identity matrices) will be used in the calculation."
+        err_msg="Dummy projections (identity matrices) will be used in the calculation."
         " U_matrix, U_matrix_opt,ndimwin, U_full will be set to None"
 
         chkpt_data={}
@@ -1790,7 +1813,7 @@ class Wannier90Converter(Check, ConverterTools, Save):
                     chkpt_data["Number of bands"]=int(lines.pop(0))
                 except ValueError:
                     self.report_warning("Invalid number of bands in %s.chk.fmt!"%filename)
-                    self._produce_dummy_projectors()
+                    self._produce_dummy_projections()
                     return
 
                 if self.total_Bloch!=chkpt_data["Number of bands"]:
@@ -1801,7 +1824,7 @@ class Wannier90Converter(Check, ConverterTools, Save):
                     chkpt_data["Number of exclude bands"]=int(lines.pop(0))
                 except ValueError:
                     self.report_warning("Invalid number of excluded bands in %s.chk.fmt!"%filename)
-                    self._produce_dummy_projectors()
+                    self._produce_dummy_projections()
                     return
 
                 # Excluded bands
@@ -1811,7 +1834,7 @@ class Wannier90Converter(Check, ConverterTools, Save):
                         chkpt_data["Exclude_bands"].append(int(lines.pop(0)))
                 except ValueError:
                     self.report_warning("Invalid  excluded bands in %s.chk.fmt!"%filename)
-                    self._produce_dummy_projectors()
+                    self._produce_dummy_projections()
                     return
 
                 temp_array=numpy.zeros((dim,dim),dtype=float)
@@ -1820,7 +1843,7 @@ class Wannier90Converter(Check, ConverterTools, Save):
                     temp=lines.pop(0).split()
                     if len(temp)!=dim2:
                         self.report_warning("Invalid real lattice matrix in %s.chk.fmt!"%filename)
-                        self._produce_dummy_projectors()
+                        self._produce_dummy_projections()
                         return
 
                     for j in range(dim):
@@ -1830,7 +1853,7 @@ class Wannier90Converter(Check, ConverterTools, Save):
 
                 except ValueError:
                     self.report_warning("Invalid real lattice matrix in %s.chk.fmt!"%filename)
-                    self._produce_dummy_projectors()
+                    self._produce_dummy_projections()
                     return
 
                 # Reciprocal lattice
@@ -1838,7 +1861,7 @@ class Wannier90Converter(Check, ConverterTools, Save):
                     temp=lines.pop(0).split()
                     if len(temp)!=dim2:
                         self.report_warning("Invalid reciprocal lattice matrix!")
-                        self._produce_dummy_projectors()
+                        self._produce_dummy_projections()
                         return
 
                     for j in range(dim):
@@ -1848,7 +1871,7 @@ class Wannier90Converter(Check, ConverterTools, Save):
 
                 except ValueError:
                     self.report_warning("Invalid reciprocal lattice matrix in %s.chk.fmt!"%filename)
-                    self._produce_dummy_projectors()
+                    self._produce_dummy_projections()
                     return
 
                 del temp_array
@@ -1858,7 +1881,7 @@ class Wannier90Converter(Check, ConverterTools, Save):
                     chkpt_data["Number of kpoints"]=int(lines.pop(0))
                 except ValueError:
                     self.report_warning("Invalid number of excluded bands in %s.chk.fmt!"%filename)
-                    self._produce_dummy_projectors()
+                    self._produce_dummy_projections()
                     return
 
                 if self.n_k!=chkpt_data["Number of kpoints"]:
@@ -1871,7 +1894,7 @@ class Wannier90Converter(Check, ConverterTools, Save):
                 try:
                     if len(temp)!=dim:
                         self.report_warning("Invalid real lattice matrix in %s.chk.fmt!"%filename)
-                        self._produce_dummy_projectors()
+                        self._produce_dummy_projections()
                         return
 
                     chkpt_data["M-P grid"]=[]
@@ -1879,7 +1902,7 @@ class Wannier90Converter(Check, ConverterTools, Save):
                         chkpt_data["M-P grid"].append(int(temp.pop(0)))
                 except ValueError:
                     self.report_warning("Invalid real lattice matrix in %s.chk.fmt!"%filename)
-                    self._produce_dummy_projectors()
+                    self._produce_dummy_projections()
                     return
                 del temp
 
@@ -1952,7 +1975,7 @@ class Wannier90Converter(Check, ConverterTools, Save):
                                   self._u_matrix_opt[i,j,self._name2SpinChannel[filename],nkp]=float(temp[0])+1j*float(temp[1])
                     except ValueError:
                         self.report_warning("Invalid value of matrix U_opt!")
-                        self._produce_dummy_projectors()
+                        self._produce_dummy_projections()
                         return
                 else:
                     for nkp in range(chkpt_data["Number of kpoints"]):
@@ -1967,13 +1990,13 @@ class Wannier90Converter(Check, ConverterTools, Save):
                                   self._u_matrix[i,j,self._name2SpinChannel[filename],nkp]=float(temp[0])+1j*float(temp[1])
                 except ValueError:
                         self.report_warning("Invalid value of matrix U_opt!")
-                        self._produce_dummy_projectors()
+                        self._produce_dummy_projections()
                         return
 
 
         except IOError:
             self.report_warning("Opening file %s.chk.fmt failed. "%filename+err_msg)
-            self._produce_dummy_projectors()
+            self._produce_dummy_projections()
             return
 
         self.make_statement("Information from formatted file %s.chk.fmt file has been read."%filename)
@@ -2023,28 +2046,28 @@ class Wannier90Converter(Check, ConverterTools, Save):
                 self._u_matrix_full[k,spin_bloc,:,:]=temp_array.conjugate().transpose()
 
 
-    def _produce_projectors(self):
+    def _produce_projections(self):
         """
-        In case correlated and non correlated MLWF in the system dummy projectors will be built,
+        In case correlated and non correlated MLWF in the system dummy projections will be built,
         otherwise projections from Bloch to correlated space are built.
 
-        Produces projectors required by sumk_dft, in case *.chk.fmt file(s) is/are present
-        otherwise dummy projectors in the form of identity matrices are produced.
-        Projectors are produced for all correlated shells, also those which are symmetry equivalent.
-        Projectors have a form of rotation from Bloch space to the correlated subspace.
+        Produces projections required by sumk_dft, in case *.chk.fmt file(s) is/are present
+        otherwise dummy projections in the form of identity matrices are produced.
+        projections are produced for all correlated shells, also those which are symmetry equivalent.
+        projections have a form of rotation from Bloch space to the correlated subspace.
 
         """
 
         # If number of shells is larger than number of correlated shells  then seedname*.chk
-        # is neglected and dummy projectors are always built
+        # is neglected and dummy projections are always built
 
         if len(self.shells)>len(self.corr_shells):
 
             self.make_verbose_statement("Number of shells larger than number of "
                                         "correlated shells. *.chk.fmt file will be"
-                                        " neglected and dummy projectors will be built.")
+                                        " neglected and dummy projections will be built.")
 
-            self._produce_dummy_projectors()
+            self._produce_dummy_projections()
             return
 
         self.proj_mat=None
@@ -2056,7 +2079,7 @@ class Wannier90Converter(Check, ConverterTools, Save):
             if self._n_spin==1:
 
                 self._read_chkpt_fmt(filename=self._filename)
-                #check if self._proj_mat is not already a dummy projectors
+                #check if self._proj_mat is not already a dummy projections
                 if not self.proj_mat is None:
 
                     return
@@ -2064,7 +2087,7 @@ class Wannier90Converter(Check, ConverterTools, Save):
             elif self._n_spin==2:
                 #up channel
                 self._read_chkpt_fmt(filename=self._filename+"_up")
-                #check if self._proj_mat is not already a dummy projectors
+                #check if self._proj_mat is not already a dummy projections
                 if not self.proj_mat is None:
 
                     return
@@ -2073,7 +2096,7 @@ class Wannier90Converter(Check, ConverterTools, Save):
 
                     self._read_chkpt_fmt(filename=self._filename+"_down")
 
-                #check if self._proj_mat is not already a dummy projectors
+                #check if self._proj_mat is not already a dummy projections
                 if not self.proj_mat is None:
 
                      return
@@ -2083,7 +2106,7 @@ class Wannier90Converter(Check, ConverterTools, Save):
 
             self._produce_full_U_matrix()
 
-            #Initialise the projectors:
+            #Initialise the projections:
             self.proj_mat = numpy.zeros((self.n_k,
                                          self._n_spin,
                                          self.n_corr_shells,
@@ -2097,41 +2120,32 @@ class Wannier90Converter(Check, ConverterTools, Save):
                          self.proj_mat[ik,isp,icrsh,0:n_orb,:] = self._u_matrix_full[ik, isp,  offset:offset+n_orb,:]
 
 
-    def _produce_dummy_projectors(self):
+    def _produce_dummy_projections(self):
 
 
         """
 
         In case there is no valid *win, or *chk.fmt files or non-correlated MLWF
         in the system, method will clean up variables and produce dummy projections.
-        Dummy projectors have a from of identity matrices and are built only
-        for correlated shells. In case dummy projectors are used, hopping
+        Dummy projections have a from of identity matrices and are built only
+        for correlated shells. In case dummy projections are used, hopping
         integrals will have a form of Hk which is Fourier
         transformed from HR obtained by wannier90.
 
         """
         self._set_U_None()
-
-        self.n_orbitals = numpy.ones((self.n_k,self._n_spin),numpy.int) * self.total_MLWF
-
-        self._produce_projectors_dummy_core()
-        self._dummy_projectors_used=True
+        self._set_proj_mat_dummy()
+        self._produce_projections_dummy_core()
+        self._dummy_projections_used=True
 
 
-    def _produce_projectors_dummy_core(self):
+    def _produce_projections_dummy_core(self):
         """"
 
-        Produces dummy projectors ("rectangular identity matrices")
+        Produces dummy projections ("rectangular identity matrices")
         required by sumk_dft in case chk.fmt file is not present.
 
         """
-
-        # Initialise the projectors:
-        self.proj_mat = numpy.zeros((  self.n_k,
-                                        self._n_spin,
-                                        self.n_corr_shells,
-                                        max([crsh['dim'] for crsh in self.corr_shells]),
-                                        self.total_Bloch),numpy.complex)
 
         for icrsh in range(self.n_corr_shells):
             n_orb,offset=self.eval_offset(n_corr=icrsh)
@@ -2153,7 +2167,7 @@ class Wannier90Converter(Check, ConverterTools, Save):
                                     self.total_Bloch),numpy.complex)
 
 
-        if self._dummy_projectors_used:
+        if self._dummy_projections_used:
 
             for k in range(self.n_k):
                 for s in range(self._n_spin):
@@ -2383,7 +2397,7 @@ class Wannier90Converter(Check, ConverterTools, Save):
         """
 
         :return: Whole rotation matrix from Bloch states to MLWF.
-        If dummy projectors are used it is set to None.
+        If dummy projections are used it is set to None.
 
         """
 
