@@ -32,8 +32,6 @@ from pytriqs.archive.hdf_archive import  HDFArchive
 #        * It is tested if attributes of wannier90 converter are extracted properly
 #          from data which was read from LaTiO3.win file.
 
-
-default_par={"projections":None}
 input_file="LaTiO3" # Core part of the name of file here. File input_file+".win" will be opened
 
 converter=Wannier90Converter(filename=input_file)
@@ -45,9 +43,10 @@ converter._read_win_file()
 converter_attr={"SO": converter.SO,
                 "SP": converter.SP,
                 "ham_nkpt": converter.ham_nkpt,
-                "shells": converter.shells,
+                "shells": converter.shells, # sort calculater in other benchmark!
                 "total_MLWF": converter.total_MLWF,
-                "total_Bloch":converter.total_Bloch}
+                "total_Bloch":converter.total_Bloch,
+                "chemical_potential":converter.chemical_potential}
 
 ar = HDFArchive('wannier_converter_test_win.output.h5', 'w')
 ar["win_par"]=converter._win_par
@@ -115,7 +114,8 @@ del ar
 #                 "ham_nkpt": converter.ham_nkpt,
 #                 "shells": converter.shells,
 #                 "total_MLWF": converter.total_MLWF,
-#                 "total_Bloch":converter.total_Bloch}
+#                 "total_Bloch":converter.total_Bloch,
+#                 "chemical_potential":converter.chemical_potential }
 #
 # correct_attr={"SO":0,
 #               "SP":0,
@@ -137,5 +137,6 @@ del ar
 #                          {'dim': 3, 'l': 1, 'atom': 14},
 #                          {'dim': 3, 'l': 1, 'atom': 15}],
 #                "total_MLWF": 48,
-#                "total_Bloch": 76}
+#                "total_Bloch": 76,
+#                "chemical_potential": 15.3695}
 #

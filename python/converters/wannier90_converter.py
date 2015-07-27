@@ -5,7 +5,7 @@ from os.path import isfile
 from copy import deepcopy
 
 # pytriqs
-from pytriqs.utility.mpi import bcast, is_master_node, slice_array, all_reduce, barrier,world
+from pytriqs.utility.mpi import bcast, is_master_node, slice_array, all_reduce, barrier,world, rank
 from pytriqs.archive import HDFArchive
 from pytriqs.applications.dft.U_matrix import spherical_to_cubic
 from pytriqs.applications.dft.converters.converter_tools import ConverterTools
@@ -21,7 +21,7 @@ class Wannier90Converter(Check, ConverterTools, Save):
 
             (main methods mentioned only please have a look below for all methods)
 
-            -  Reads H_R from wannier90.x output file, Fourier transform it to H_k.
+            -  Reads H_R from wannier90.x output file, Fourier transform it to Hk.
                 (method: __h_to_triqs)
 
             -  Reads projections from seedname*.chk.fmt file(s) and transforms it to the proper format.
@@ -73,7 +73,7 @@ class Wannier90Converter(Check, ConverterTools, Save):
                     For each spin channel calculation is performed
                     separately and as a result we get:
 
-                        * seedname_up.chk, seedname_down.chk, (optional)
+                        * seedname_up.chk.fmt, seedname_down.chk.fmt, (optional)
 
                         * seedname_hr_up.dat, seedname_hr_down.dat (obligatory)
 
@@ -88,21 +88,21 @@ class Wannier90Converter(Check, ConverterTools, Save):
                     Keyword spinors = true in seedname.win is obligatory in this case  and
                     only half of the initial projections should be provided.
 
-            - If seedname*.chk.fmt are not present, dummy projections in the
+            - If seedname*.chk.fmt is (are) not present, dummy projections in the
               form of rectangular matrices each with block of identity matrix
               which corresponds to the given correlated shell will be calculated,
 
-            - If number of shells is larger than number of correlated shells  then seedname*.chk
-              is neglected and dummy projections are always built,
+            - If number of shells is larger than number of correlated shells  then seedname*.chk.fmt
+              is (are) neglected and dummy projections are always built,
 
             - Otherwise projections basing on data from  seedname*.chk.fmt will be constructed.
-              In case seedname*.chk.fmt is present check for consistency
+              In case seedname*.chk.fmt is (are) present check for consistency
               between seedname*.win and seedname*.chk.fmt will be done.
 
-            In case dummy projections are built, Hk becomes  hopping integrals.
+            In case dummy projections are built, Hk becomes hopping integrals.
 
-            If there is no *seedname_hr.dat calculation will not start
-            (hr_plot  in *seedname.win has to be set to true).
+            If there is (are) no *seedname_hr.dat calculation will not start
+            (also hr_plot  in *seedname.win has (have) to be set to true).
 
             Keywords in input wannier90 file *seedname.win used by Wannier90Converter are as follows:
 
@@ -125,9 +125,8 @@ class Wannier90Converter(Check, ConverterTools, Save):
 
 
     """
+
     # static variables:
-    # mapping of booleans from Fortran to Python
-    _fortran_boolean = {"False": False, "True": True}
     corr_shells_keywords = ["atom", "sort", "l", "dim", "SO", "irep"]
     shells_keywords = ["atom", "sort", "l", "dim"]
 
@@ -204,6 +203,8 @@ class Wannier90Converter(Check, ConverterTools, Save):
 
         self.total_Bloch = None  # total number of Bloch states used for the construction of MLWF
 
+        self._total_Bloch_spin= None # # total number of Bloch states used for the construction of MLWF for each spin channel
+
         self.total_MLWF = None  # total number of MLWF (both correlated and an correlated)
 
         self._R_sym = None  # symmetry operations
@@ -263,9 +264,7 @@ class Wannier90Converter(Check, ConverterTools, Save):
 
         self._atoms = None  # stores all projections read so far from win file
 
-        self._disentangled_spin = None  # defines disentanglement separately for each spin
-
-        self._disentanglement = None  # whether we have disentanglement or not
+        self._disentanglement_spin = None  # defines disentanglement separately for each spin
 
         self._dummy_projections_used = False # defines whether or not dummy projections are in use
 
@@ -299,7 +298,9 @@ class Wannier90Converter(Check, ConverterTools, Save):
 
         self.hdf_file=self._filename+".h5"
 
-        self._name2SpinChannel = None # defines mapping between name of file and spin channel
+        self._name2SpinChannel={self._filename+"_up": 0, # defines mapping between name of file and spin channel
+                                self._filename+"_down": 1,
+                                self._filename: 0 }
 
         self._num_zero = None  # definition of numerical zero
 
@@ -307,7 +308,7 @@ class Wannier90Converter(Check, ConverterTools, Save):
         #                     it is 1 for spin non-polarised, spin-orbit calculation
         #                     and 2 for spin polarised calculation
 
-        self._parameters = None  # parameters specific for Wannier converter
+        self._parameters = {}  # parameters specific for Wannier converter
 
         #self._sumk_dft:  folder in hdf file where dft input data is stored (both sumkdft and wannier converter)
 
@@ -369,6 +370,7 @@ class Wannier90Converter(Check, ConverterTools, Save):
 
         else:
             self.report_error("Invalid value of repacking for 'repacking' keyword. Bool value is expected!")
+
 
     def convert_dft_input(self, corr_shells=None):
         """
@@ -534,7 +536,7 @@ class Wannier90Converter(Check, ConverterTools, Save):
                           "verbosity": self._verbosity,
                           "ham_nkpt": self.ham_nkpt}
 
-        self.__h_to_triqs()
+        self._h_to_triqs()
         self._get_density_required()
 
         if not self._all_read: # calculation from scratch
@@ -542,18 +544,18 @@ class Wannier90Converter(Check, ConverterTools, Save):
             # non-standard shells
             if not corr_shells is None:
                 for n_corr in range(len(corr_shells)):
-                    self.check_shell(x=corr_shells[n_corr],
-                                     t=["atom","sort", "l", "dim", "SO", "irep" ])
-                self.corr_shells=corr_shells
-                self.shells=deepcopy(self.corr_shells)
-                for n_shell in range(len(self.shells)):
-                    del self.shells[n_shell]["SO"]
-                    del self.shells[n_shell]["irep"]
-                self._user_shells=True
+                    if self.check_shell(x=corr_shells[n_corr],
+                                        t=self.__class__.corr_shells_keywords):
+                        self.corr_shells=corr_shells
+                        self.shells=deepcopy(self.corr_shells)
+                        for n_shell in range(len(self.shells)):
+                            del self.shells[n_shell]["SO"]
+                            del self.shells[n_shell]["irep"]
+                        self._user_shells=True
+                    else:
+                        self.report_error("Invalid user-defined correlated shells!")
             else:
                 self._user_shells=False
-
-            self._disentangled_spin={i: False for i in range(self._n_spin)}
 
             # delete content of hdf file, since some parameters were not found
             # it is invalid and start to  write file from scratch
@@ -633,6 +635,7 @@ class Wannier90Converter(Check, ConverterTools, Save):
 
         barrier()
 
+
     def _read_win_file(self):
 
 
@@ -640,39 +643,61 @@ class Wannier90Converter(Check, ConverterTools, Save):
         Extracts parameters from win file.
 
         """
+
+        one_channel = False
         if is_master_node():
             reader=AsciiIO()
 
-            one_channel = False
+            n_spin=2
+            self._disentanglement_spin={i: False for i in range(n_spin)}
+            self._total_Bloch_spin={i:0 for i in range(n_spin) }
+
+
             if isfile(self._filename+".win"):
                 one_channel = True
-            elif not (isfile(self._filename+"up.win") and isfile(self._filename+"down.win")):
+            elif not (isfile(self._filename+"_up.win") and isfile(self._filename+"_down.win")):
                 self.report_error("Couldn't find any of the following obligatory files (option 1) or 2) ): "+
                                   "1) "+self._filename+".win or"+
-                                  "2) "+self._filename+"up.win and "+self._filename+"down.win " )
+                                  "2) "+self._filename+"_up.win and "+self._filename+"_down.win " )
 
             if one_channel:
 
                 reader.read_ASCII_fortran_file(file_to_read=self._filename+".win",default_dic=self._win_par)
+                self._check_hr_plot(filename=self._filename+".win", dictionary=self._win_par)
                 self._get_spinors()
                 self._get_total_MLWF()
                 self.total_Bloch=self._get_num_bands(dictionary=self._win_par)
-                self.SP=0
+                self._disentanglement_spin[0]=(self.total_MLWF!=self.total_Bloch)
+                self._total_Bloch_spin[0]=self.total_Bloch
 
             else:
                 temp_par=deepcopy(self._win_par)
 
-                reader.read_ASCII_fortran_file(file_to_read=self._filename+"up.win",default_dic=self._win_par)
-                reader.read_ASCII_fortran_file(file_to_read=self._filename+"down.win",default_dic=temp_par)
+                reader.read_ASCII_fortran_file(file_to_read=self._filename+"_up.win",default_dic=self._win_par)
+                reader.read_ASCII_fortran_file(file_to_read=self._filename+"_down.win",default_dic=temp_par)
+
+                self._check_hr_plot(filename=self._filename+"_up.win", dictionary=self._win_par)
+                self._check_hr_plot(filename=self._filename+"_down.win", dictionary=temp_par)
 
                 for entry in self._win_par:
                     if cmp(self._win_par[entry],temp_par[entry])!=0:
-                        self.report_error("Files"+self._filename+"up.win and "+self._filename+"down.win are inconsistent!" )
+                        self.report_error("Files "+self._filename+"_up.win and "+self._filename+"_down.win are inconsistent!"
+                                         " Entry '"+entry+"' has value '"+self._win_par[entry] +"' in %s_up.win file "%self._filename+
+                                          " and value '"+temp_par[entry] +"' in %s_down.win file."%self._filename)
 
                 self._get_total_MLWF()
-                winBloch=self._get_num_bands(dictionary=self._win_par)
-                tempBloch=self._get_num_bands(dictionary=temp_par)
-                self.total_Bloch=max(winBloch,tempBloch)
+                BlochUp=self._get_num_bands(dictionary=self._win_par)
+                BlochDown=self._get_num_bands(dictionary=temp_par)
+
+                # it is assumed that for both spin channels the same number of MLWF is constructed
+                # for each spin channel disentaglement is monitored independently
+                self._total_Bloch_spin[0]=BlochUp
+                self._total_Bloch_spin[1]=BlochDown
+
+                self._disentanglement_spin[0]=(self.total_MLWF!=BlochUp)
+                self._disentanglement_spin[1]=(self.total_MLWF!=BlochDown)
+
+                self.total_Bloch=max(BlochUp,BlochDown)
 
                 self.SO = 0
                 self.SP = 1
@@ -684,11 +709,11 @@ class Wannier90Converter(Check, ConverterTools, Save):
             self._get_ham_nkpt()
             self._get_chemical_potential()
 
+            self._n_spin=self.SP+1-self.SO
+
 
             self.n_shells=len(self.shells)
             self.n_k = self.ham_nkpt[0] * self.ham_nkpt[1] * self.ham_nkpt[2] #number of k-points
-            self._n_spin=self.SP+1-self.SO
-            self._disentanglement=(self.total_MLWF!=self.total_Bloch)
 
             # **** read extra parameters ****
             try:
@@ -724,19 +749,32 @@ class Wannier90Converter(Check, ConverterTools, Save):
                 self.make_statement("No additional output will be printed out from lattice module.")
                 self._verbosity = "None"
 
-        self._name2SpinChannel={self._filename+"_up": 0,
-                                self._filename+"_down": 1,
-                                self._filename: 0 }
+
 
         # brodcasting input from *.win file
-        bcast_items=["shells", "n_shells", "ham_nkpt", "SO", "SP", "_disentanglement", "total_MLWF",
-                     "total_Bloch", "chemical_potential","_num_zero","_verbosity","_wannier_order","_name2SpinChannel",
-                     "n_k", "_n_spin"]
-        for it in bcast_items:
-                exec "self.%s = bcast(self.%s)"%(it,it)
+        self.shells=bcast(self.shells)
+        self.n_shells=bcast(self.n_shells)
+        self.ham_nkpt=bcast(self.ham_nkpt)
+        self.n_k=bcast(self.n_k)
+        self.SO=bcast(self.SO)
+        self.SP=bcast(self.SP)
+        self._n_spin=bcast(self._n_spin)
+        self._disentanglement_spin=bcast(self._disentanglement_spin)
+        self.total_Bloch=bcast(self.total_Bloch)
+        self._total_Bloch_spin=bcast(self._total_Bloch_spin)
+        self.total_MLWF=bcast(self.total_MLWF)
+        self.chemical_potential=bcast(self.chemical_potential)
+        self._num_zero=bcast(self._num_zero)
+        self._verbosity=bcast(self._verbosity)
+        self._wannier_order=bcast(self._wannier_order)
+        self._name2SpinChannel=bcast(self._name2SpinChannel)
+        one_channel=bcast(one_channel)
 
+        if one_channel:
+            self.make_statement("Information from  %s.win file has been read."%self._filename)
+        else:
+            self.make_statement("Information from %s_up.win and %s_down.win files  has been read."%(self._filename, self._filename))
 
-        self.make_statement("Information from formatted file %s.win file has been read."%self._filename)
 
     def _get_spinors(self):
         """
@@ -754,8 +792,11 @@ class Wannier90Converter(Check, ConverterTools, Save):
 
         if spinors:
             self.SO=1
+            self.SP=1
         else:
             self.SO=0
+            self.SP=0
+
 
     def _get_chemical_potential(self):
 
@@ -768,6 +809,7 @@ class Wannier90Converter(Check, ConverterTools, Save):
             self.chemical_potential = float(self._win_par["fermi_energy"])
         except ValueError:
             self.report_error("Invalid value of fermi_energy! ")
+
 
     def _get_ham_nkpt(self):
         """
@@ -787,6 +829,7 @@ class Wannier90Converter(Check, ConverterTools, Save):
 
         if not (len(self.ham_nkpt) == 3 and all([self.ham_nkpt[i] > 0 for i in range(len(self.ham_nkpt))])):
             self.report_error("You have to define a proper k-mesh!")
+
 
     def _get_shells(self):
         """
@@ -873,6 +916,7 @@ class Wannier90Converter(Check, ConverterTools, Save):
             elif state["dim"] > (state["l"]*2+1):
                 self.report_error("Wrong structure of shells!")
 
+
     def _get_corr_shells(self):
 
         """
@@ -891,6 +935,7 @@ class Wannier90Converter(Check, ConverterTools, Save):
                 corr_state["irep"] = 0
                 self.corr_shells.append(corr_state)
                 self._wannier_order_corr.append(self._wannier_order[i])
+
 
     def _get_proj_l(self, input_proj=None, atom_name=None):
         """
@@ -1014,10 +1059,26 @@ class Wannier90Converter(Check, ConverterTools, Save):
 
     def _get_total_MLWF(self):
 
+
         try:
             self.total_MLWF=int(self._win_par["num_wann"])
         except ValueError:
             self.report_error("Invalid number of MLWFs!")
+
+
+    def _check_hr_plot(self,filename=None, dictionary=None):
+        """
+        Checks if there is a valid hr_plot keyword in filename.
+
+        :param filename: name of the win file in which search for a keyoword 'hr_plot' was made
+        :param dictionary: dictionary which stores data (values are strings) exctracted from win file
+
+        """
+        if not "hr_plot" in dictionary: self.report_error("Keyword 'hr_plot' was expected in the directory!")
+        if not (dictionary["hr_plot"].lower() == "true" or
+                dictionary["hr_plot"].lower() == "t"):
+            self.report_error("No valid 'hr_plot' keyword was found in %s!"%filename)
+
 
     def _get_num_bands(self, dictionary=None):
 
@@ -1032,6 +1093,7 @@ class Wannier90Converter(Check, ConverterTools, Save):
                 return int(self._win_par["num_bands"])
         except ValueError:
             self.report_error("no 'num_bands' keyword in the dictionary!")
+
 
     def _get_T(self):
         self.T = []
@@ -1049,6 +1111,7 @@ class Wannier90Converter(Check, ConverterTools, Save):
                 T = spherical_to_cubic(l = self.corr_shells[self.inequiv_to_corr[n_corr]]["l"],
                                       convention = 'wien2k')
                 self.T.append(numpy.dot(numpy.linalg.inv(rot),numpy.dot(T,rot)))
+
 
     def _order_orb(self,n_corr = None):
         """
@@ -1120,6 +1183,7 @@ class Wannier90Converter(Check, ConverterTools, Save):
 
         return rot_matrix
 
+
     def _get_density_required(self):
         """
         Calculate required occupancy of the local Hamiltonian basing on the Fermi
@@ -1129,23 +1193,22 @@ class Wannier90Converter(Check, ConverterTools, Save):
         occ = 0.0
         indices_kpt=numpy.array(range(self.n_k))
         for n_s in range(self._n_spin):
+            occ_part=0.0
             #parallelization over n_k
             for ikpt in slice_array(indices_kpt):
-                occ_part=0.0
                 temp_eig,temp_rot_mat=numpy.linalg.eigh(self.Hk[ikpt][n_s])
                 for eig in temp_eig:
                    if eig <= self.chemical_potential:
                         occ_part+=1.0
-                occ+=all_reduce(world,occ_part,lambda x, y: x + y)
-                barrier()
+            occ+=all_reduce(world,occ_part,lambda x, y: x + y)
+            barrier()
         self.density_required=occ/self.n_k
-
         # case of the spinless calculation
         if self._n_spin==1:
             self.density_required*=2
 
 
-    def __h_to_triqs(self):
+    def _h_to_triqs(self):
         """
         Reads  HR file calculated by wannier90  and calculates Hk and symmetry operations.
         Detailed steps below:
@@ -1198,15 +1261,19 @@ class Wannier90Converter(Check, ConverterTools, Save):
             #    eigenvalues of H_00 block for each shell. H_00 is a real representation of
             #    the Hamiltonian represented in MLWFs which corresponds to R=[0 ,0 ,0 ]
 
-            n_orb=self.shells[0]["dim"]
-            total_orb=0
-            temp_eig,temp_rot_mat=numpy.linalg.eigh(ham_r[total_orb:total_orb+n_orb,total_orb:total_orb+n_orb])
-            t1=temp_eig.argsort()
-            last_sort=0
-            all_sorts={last_sort: deepcopy(temp_eig[t1])} # save sorted values
-            self.shells[0]["sort"]=last_sort
+            # n_orb=self.shells[0]["dim"]
+            # total_orb=0
+            # temp_eig,temp_rot_mat=numpy.linalg.eigh(ham_r[total_orb:total_orb+n_orb,total_orb:total_orb+n_orb])
+            # t1=temp_eig.argsort()
+            # last_sort=0
+            # all_sorts={last_sort: deepcopy(temp_eig[t1])} # save sorted values
+            # self.shells[0]["sort"]=last_sort
 
-            for ish in range(1,self.n_shells):
+            total_orb=0
+            last_sort=-1
+            all_sorts={}
+
+            for ish in range(self.n_shells):
                  old_sort_found=False
                  n_orb=self.shells[ish]["dim"]
                  temp_eig, temp_rot_mat=numpy.linalg.eigh(ham_r[total_orb:total_orb+n_orb,total_orb:total_orb+n_orb])
@@ -1345,6 +1412,7 @@ class Wannier90Converter(Check, ConverterTools, Save):
                      "R_sym": self._R_sym}
 
         self._parameters.update(Variables)
+
 
     def _read_H_R_file(self,filename=None):
 
@@ -1607,29 +1675,6 @@ class Wannier90Converter(Check, ConverterTools, Save):
                     n_kpt += 1
 
 
-    # def is_shell(self,shell_1st=None,shell_2nd=None):
-    #     """
-    #
-    #     Checks if shell_1st is equal to  shell_2nd
-    #
-    #     :param shell_1st: first shell to compare
-    #     :type shell_1st: int
-    #
-    #     :param shell_2nd:  second shell to compare
-    #     :type shell_2nd: int
-    #
-    #     :return: True if shell_1st is shell_2nd otherwise False
-    #
-    #     """
-    #
-    #     if not self.check_shell(shell_1st,t=self.__class__.shells_keywords):
-    #         self.report_error("Shell was expected!")
-    #     if not self.check_shell(shell_2nd,t=self.__class__.shells_keywords):
-    #         self.report_error("Shell was expected!")
-    #
-    #     return cmp(shell_1st,shell_2nd)==0
-
-
     def _is_unique_proj(self,atom_name=None, state=None):
 
         """
@@ -1660,9 +1705,9 @@ class Wannier90Converter(Check, ConverterTools, Save):
         :rtype: bool
         """
 
-        if not self.check_shell(corr_shell, t=self.__class__.corr_shells_keywords):
+        if not self.check_shell(x=corr_shell, t=self.__class__.corr_shells_keywords):
             self.report_error("Correlated shell was expected!")
-        if not self.check_shell(shell,t=self.__class__.shells_keywords):
+        if not self.check_shell(x=shell,t=self.__class__.shells_keywords):
 
             self.report_error("Shell was expected!")
 
@@ -1732,6 +1777,7 @@ class Wannier90Converter(Check, ConverterTools, Save):
         self._u_matrix_full=None
         self._u_matrix_opt=None
 
+
     def _set_proj_mat_dummy(self):
         """
         Redefines the projection matrices in case dummy projections are used.
@@ -1779,6 +1825,7 @@ class Wannier90Converter(Check, ConverterTools, Save):
                                          self.total_Bloch),
                                          numpy.complex)
 
+
     def _read_chkpt_fmt(self,filename=None):
 
         """
@@ -1816,7 +1863,7 @@ class Wannier90Converter(Check, ConverterTools, Save):
                     self._produce_dummy_projections()
                     return
 
-                if self.total_Bloch!=chkpt_data["Number of bands"]:
+                if self._total_Bloch_spin[self._name2SpinChannel[filename]]!=chkpt_data["Number of bands"]:
                     self.report_error("Different number of bands in %s.win  and in  %s.chk.fmt!"%(filename,filename))
 
                 # number of excluded bands
@@ -1943,7 +1990,7 @@ class Wannier90Converter(Check, ConverterTools, Save):
                 except ValueError:
                     self.report_warning("Invalid have disentanglement in  %s.chk.fmt!"%filename)
 
-                if self._disentanglement!=chkpt_data["Have disentanglement"]:
+                if self._disentanglement_spin[self._name2SpinChannel[filename]]!=chkpt_data["Have disentanglement"]:
                     self.report_error("Have disentanglement is different in "
                                       "%s.win file and in %s.chk.fmt!"%(filename,filename))
 
@@ -2002,6 +2049,7 @@ class Wannier90Converter(Check, ConverterTools, Save):
         self.make_statement("Information from formatted file %s.chk.fmt file has been read."%filename)
         return chkpt_data
 
+
     def _produce_full_U_matrix(self):
         """
         Produces full rotation matrix from Bloch states to MLWF
@@ -2021,7 +2069,7 @@ class Wannier90Converter(Check, ConverterTools, Save):
                 for i in range(self.total_Bloch):
                     for j in range(self.total_MLWF):
                         temp_array[i,j]=0.0
-                        if self._disentangled_spin[spin_bloc]:
+                        if self._disentanglement_spin[spin_bloc]:
 
                             for orb in range(self.total_MLWF):
 
@@ -2063,8 +2111,8 @@ class Wannier90Converter(Check, ConverterTools, Save):
 
         if len(self.shells)>len(self.corr_shells):
 
-            self.make_verbose_statement("Number of shells larger than number of "
-                                        "correlated shells. *.chk.fmt file will be"
+            self.make_verbose_statement("Number of shells larger than the number of "
+                                        "correlated shells. %s.chk.fmt file will be"%self._filename+
                                         " neglected and dummy projections will be built.")
 
             self._produce_dummy_projections()
