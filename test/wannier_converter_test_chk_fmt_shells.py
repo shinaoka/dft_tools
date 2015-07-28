@@ -10,7 +10,7 @@ import pytriqs.utility.mpi as mpi
 
 # Test for validity of reading shells and projections  from *.chk.fmt file
 #
-# Input files: wannier_converter_SrVO3.win, wannier_converter_SrVO3_hr.dat, wannier_converter_SrVO3.chk.fmt wannier_converter_test_chk_fmt_shells.py
+# Input files: wannier_converter_SrVO3.win, wannier_converter_SrVO3_hr.dat, wannier_converter_SrVO3.chk.fmt, wannier_converter_test_chk_fmt_shells.py
 #
 # Outputfiles: wannier_converter_test_chk_fmt_shells.output.h5
 #

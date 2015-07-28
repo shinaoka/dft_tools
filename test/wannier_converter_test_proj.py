@@ -5,7 +5,7 @@ from pytriqs.archive.hdf_archive import  HDFArchive
 
 # Test for validity of constructed shells from *.win file
 #
-#    Input files: wannier_converter_proj.win, wannier_converter_test_proj.py,
+#    Input files: wannier_converter_proj.win, wannier_converter_test_proj.py
 #
 #    Output files:  wannier_converter_test_proj.output.h5
 #

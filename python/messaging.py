@@ -113,12 +113,13 @@ class Report(object):
 
         :param input_message: Message for the user which will be formatted
         :type input_message: str
+        :return String which stores a nice frame with a message ready for printing
 
         """
 
-        line="                                                                                     !"
+        model_line="                                                                                     !"
         # -2 because we need space for '!' at the end and at the beginning, between is the comment broken into lines
-        line_width=len(line)-2
+        line_width=len(model_line)-2
         words=input_message.replace("\n"," ").split()
 
         current_line=""
@@ -129,11 +130,11 @@ class Report(object):
 
             if len(word)>line_width:
                 # we need to add symbol - to mark that we break a word so -1,
-                # another -1 because we new space between frame and a broken word
+                # another -1 because we need a space between frame and a broken word
                 internal_width=line_width-2
                 num_lines=int(len(word)/float(internal_width)+1.0) # take into account also potential unfilled last line
 
-                for n in range(num_lines-1): # without the last line, a special case
+                for n in range(num_lines-1): # without the last line, last line a special case
 
                     message+=self._make_inner_message(input_message=word[n*internal_width:(n+1)*internal_width]+"-")
 
@@ -145,12 +146,14 @@ class Report(object):
             elif (len(current_line)+len(" "+word))<line_width:
                 current_line+=" "+word
             else:
-                message+=line+ "\r!"+current_line+"\n"
+                #message+=line+ "\r!"+current_line+"\n"
+                message+="!"+current_line+" "*(line_width-len(current_line))+"!\n"
                 current_line=" "+word
 
             # last line which is not a full line
             if indx==(len(words)-1):
-                message+=line+ "\r!"+current_line+"\n"
+                #message+=line+ "\r!"+current_line+"\n"
+                message+="!"+current_line+" "*(line_width-len(current_line))+"!\n"
 
         return message
 
@@ -318,21 +321,23 @@ class Check(Report):
 
         # function check_if_parameters_changed from Check class which was inherited by Wannier2TRIQS
         self.reset_parameters_changed_attr()
-        self._parameters_changed_core( items_to_check=dictionary.keys(),
-                                          dictionary=dictionary,
-                                          hdf_dir=hdf_dir)
+        self._parameters_changed_core(items_to_check=dictionary.keys(),
+                                      dictionary=dictionary,
+                                      hdf_dir=hdf_dir)
 
         if self._parameters_changed:
 
-            if self._critical_par_changed:
-                for item in self._what_changed:
-                    if item in self._critical_par:
-                        self.make_statement("Critical parameter %s has changed since the "
-                                            "last run. Please correct your input file!"%item)
-                self.report_error("Invalid input data program aborted. Please correct input and rerun.")
+            for item in self._what_changed:
+                if item in self._critical_par:
+                    self.make_statement("Critical parameter %s has changed since the "
+                                        "last run. Please correct your input file!"%item)
+                else:
+                    self.make_statement("Noncritical parameter %s has changed since the "%item+
+                                        "last run.")
 
-            else:
-                self._update_par_hdf(name=hdf_dir,
+            if self._critical_par_changed:  self.report_error("Invalid input data program aborted. Please correct input and rerun.")
+
+            self._update_par_hdf(name=hdf_dir,
                                  dictionary=dictionary)
 
 

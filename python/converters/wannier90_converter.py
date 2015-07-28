@@ -140,7 +140,7 @@ class Wannier90Converter(Check, ConverterTools, Save):
             :type filename: 			str
 
             :param extra_par_file:      text file with some extra parameters (num_zero, verbosity).
-                                        If not set then default value will be used,
+                                        If not set then defaults value will be used,
             :type  extra_par_file:      str
 
             :param dft_subgrp:			Name of the directory in filename.h5 where input
@@ -590,8 +590,8 @@ class Wannier90Converter(Check, ConverterTools, Save):
             # warn if input parameters for sumk_dft have changed their values since the last run
             self._get_corr_shells()
 
-            # take only the most representative parameters which check will be fast
-            sumk_dft_data={ "energy_unit": 1.0,
+            # critical parameters, if they change between reruns program should stop
+            dft_data={ "energy_unit": 1.0,
                             "k_dep_projection": 0 ,
                             "SP": self.SP,
                             "SO": self.SO,
@@ -611,27 +611,23 @@ class Wannier90Converter(Check, ConverterTools, Save):
                             "n_reps": -1,
                             "dim_reps": -1,
                             "FULL_H_R": self.FULL_H_R,
-                            "Hamiltonian": self.Hk
+                            "Hamiltonian": self.Hk,
+                            "ham_nkpt": self.ham_nkpt # converter crucial parameter
                             }
 
-            # critical parameters, if they change between reruns program should stop
-            parameters = self._parameters.keys()
-            not_crucial_par = ["verbosity","num_zero"]
-            for item in not_crucial_par:
-                if item in parameters: parameters.remove(item)
+            # not crucial parameters they may change between reruns
+            not_crucial_par = {"verbosity":self._verbosity, "num_zero":self._num_zero}
 
-            self._critical_par = sumk_dft_data.keys()+parameters
+            self._critical_par = dft_data.keys()
             self._critical_par_changed = False
 
-            # warn if input  parameters for sumk dft have changed their values since the last rerun
-            self.check_parameters_changed(  dictionary = sumk_dft_data,
+            # Stop if crucial input  parameters for sumk dft or wannier converter have changed their values since the last rerun
+            self.check_parameters_changed(  dictionary = dft_data,
                                             hdf_dir = self._sumk_dft)
 
-            # warn if input  parameters for Wannier_converter have changed their values since the last rerun
-            if self._critical_par_changed: self._critical_par_changed = False #start a new search
-
-            self.check_parameters_changed(  dictionary = self._parameters,
-                                            hdf_dir = self._sumk_dft)
+            # Warn if non-crucial parameters changed
+            self.check_parameters_changed(dictionary=not_crucial_par,
+                                          hdf_dir=self._sumk_dft)
 
         barrier()
 
