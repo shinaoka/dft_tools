@@ -158,6 +158,83 @@ class Report(object):
         return message
 
 
+class Readh5file(Report):
+     """
+     Groups methods for simple extracting data from the hdf file.
+     Not a standalone class. Class to be inherited by other classes.
+     """
+
+     def __init__(self):
+         super(Readh5file, self).__init__()
+
+         # attributes which have to set by inheriting classes
+         self.hdf_file = None
+
+
+     def _read_parameters_from_h5_file(self, subgrp=None, things_to_load=None,just_check=True):
+        """
+        Reads data from subgrp directory in self.hdf_file.
+
+
+        :param subgrp: 			Folder in  self.hdf_file where data is stored,
+        :type subgrp: 			str
+
+        :param things_to_load:  	list of items in subgrp folder needed to be read.
+        :type things_to_load: 	list of str
+
+        :param just_check:      if set to true then only checks if items are in the
+                                directory  subgrp, otherwise they will be loaded to the attributes of inheriting class
+        :type                   bool
+
+        :return:                True if all items from the list found otherwise False
+        :rtype: bool
+
+        """
+        if not just_check:
+            for it in things_to_load:
+                exec "self.%s = None" % it
+        found_all = True
+        try:
+            if mpi.is_master_node():
+                ar = HDFArchive(self.hdf_file, "a")
+                if subgrp not in ar:
+
+                    self.report_warning(
+                        "%s not found in %s file. %s will be created from scratch. " % (subgrp, self.hdf_file,  self.hdf_file))
+                    found_all = False
+
+                else:
+                    for it in things_to_load:
+
+                        if it in ar[subgrp]:
+                            if not just_check:
+                                exec "self.%s = ar['%s'][it]" % (it, subgrp)
+                        else:
+                            if not just_check:
+                                self.report_warning("Loading %s failed!" % it)
+                            else:
+                                self.report_warning("%s not found!" % it)
+
+                            self.report_warning("%s will be created from scratch." % self.hdf_file)
+                            found_all = False
+                            break
+
+                del ar
+
+            found_all = mpi.bcast(found_all)
+
+        except IOError:
+            self.report_warning("Opening file %s failed!" % self.hdf_file)
+            found_all = False
+
+        if found_all and not just_check:
+
+            for it in things_to_load:
+                exec "self.%s = mpi.bcast(self.%s)" % (it, it)
+
+        return found_all
+
+
 class Check(Report):
 
     n_inequiv_corr_shells=None
@@ -209,87 +286,106 @@ class Check(Report):
         :type old_par: dict or list or primitive python type
         """
 
-        if isinstance(new_par, list):
+        # checks if both new_par and old_par are  both primitive  or both non-primitive variables
+        if self._check_if_primitive(new_par)!=self._check_if_primitive(old_par):
+            self.report_par_change(item = parameter_name)
+
+        elif isinstance(new_par, list):
             if isinstance(old_par, list):
                 if len(new_par) == len(old_par):
                     for item in range(len(new_par)):
                         if isinstance(new_par[item],numpy.ndarray):
-                            self._check_if_parameter_changed(parameter_name=parameter_name,
-                                                         new_par=new_par[item],
-                                                         old_par=old_par[item])
+                            self._check_if_parameter_changed(parameter_name = parameter_name,
+                                                         new_par = new_par[item],
+                                                         old_par = old_par[item])
 
                         elif isinstance(new_par[item], list):
-                            self._check_if_parameter_changed(parameter_name=parameter_name,
-                                                         new_par=new_par[item],
-                                                         old_par=old_par[item])
+                            self._check_if_parameter_changed(parameter_name = parameter_name,
+                                                         new_par = new_par[item],
+                                                         old_par = old_par[item])
 
                         elif isinstance(new_par[item], dict):
-                             self._check_if_parameter_changed(parameter_name=parameter_name,
-                                                         new_par=new_par[item],
-                                                         old_par=old_par[item])
+                             self._check_if_parameter_changed(parameter_name = parameter_name,
+                                                         new_par = new_par[item],
+                                                         old_par = old_par[item])
 
 
                         elif new_par[item] in old_par:
-                            self._check_if_parameter_changed(parameter_name=parameter_name,
-                                                         new_par=new_par[item],
-                                                         old_par=old_par[item])
+                            self._check_if_parameter_changed(parameter_name = parameter_name,
+                                                         new_par = new_par[item],
+                                                         old_par = old_par[item])
                         else:
-                            self.report_par_change(item=parameter_name)
+                            self.report_par_change(item = parameter_name)
                             break
 
                 else:
 
-                    self.report_par_change(item=parameter_name)
+                    self.report_par_change(item = parameter_name)
 
             else:
 
-                self.report_par_change(item=parameter_name)
+                self.report_par_change(item = parameter_name)
 
         elif isinstance(new_par, dict):
             if isinstance(old_par, dict):
                 if len(new_par) == len(old_par):
                     for item in new_par:
                         if isinstance(item,numpy.ndarray):
-                            self._check_if_parameter_changed(parameter_name=parameter_name,
-                                                             new_par=new_par[item],
-                                                             old_par=old_par[item])
+                            self._check_if_parameter_changed(parameter_name = parameter_name,
+                                                             new_par = new_par[item],
+                                                             old_par = old_par[item])
 
                         elif isinstance(new_par[item], list):
-                            self._check_if_parameter_changed(parameter_name=parameter_name,
-                                                         new_par=new_par[item],
-                                                         old_par=old_par[item])
+                            self._check_if_parameter_changed(parameter_name = parameter_name,
+                                                         new_par = new_par[item],
+                                                         old_par = old_par[item])
 
                         elif isinstance(new_par[item], dict):
-                             self._check_if_parameter_changed(parameter_name=parameter_name,
-                                                         new_par=new_par[item],
-                                                         old_par=old_par[item])
+                             self._check_if_parameter_changed(parameter_name = parameter_name,
+                                                         new_par = new_par[item],
+                                                         old_par = old_par[item])
 
                         elif item in old_par:
-                            self._check_if_parameter_changed(parameter_name=parameter_name,
-                                                             new_par=new_par[item],
-                                                             old_par=old_par[item])
+                            self._check_if_parameter_changed(parameter_name = parameter_name,
+                                                             new_par = new_par[item],
+                                                             old_par = old_par[item])
                         else:
-                            self.report_par_change(item=parameter_name)
+                            self.report_par_change(item = parameter_name)
                             break
                 else:
-                    self.report_par_change(item=parameter_name)
+                    self.report_par_change(item = parameter_name)
 
             else:
 
-                self.report_par_change(item=parameter_name)
+                self.report_par_change(item = parameter_name)
 
         elif isinstance(new_par, numpy.ndarray):
             if isinstance(old_par, numpy.ndarray):
                 if not ( new_par.shape==old_par.shape and numpy.allclose(new_par, old_par)):
 
-                    self.report_par_change(item=parameter_name)
+                    self.report_par_change(item = parameter_name)
 
             else:
-                self.report_par_change(item=parameter_name)
+                self.report_par_change(item = parameter_name)
 
-        elif not (new_par is None or old_par == "None") and new_par != old_par:
 
-            self.report_par_change(item=parameter_name)
+        elif self._check_if_primitive(old_par):
+            if new_par != old_par: self.report_par_change(item = parameter_name)
+
+        else:
+            self.report_error("Unsupported check (%s)!"%parameter_name)
+
+
+    def _check_if_primitive(self, par = None):
+        """
+        Checks if parameter is a list, dict, 'None' or  numpy._ndarray
+        :param par:  Parameter to check
+        :return: False if par is a list, dict, 'None' or  numpy._ndarray otherwise True
+        """
+        return not ( isinstance(par, numpy.ndarray) or
+                     isinstance(par, list) or
+                     isinstance(par, dict) or
+                     par=="None")
 
 
     @property

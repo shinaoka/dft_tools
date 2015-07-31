@@ -509,4 +509,4 @@ class AsciiIO(Check):
         :param val:  potential new value of verbosity
 
         """
-        self.report_error("Verbosity cannot be set his way!")
+        self.report_error("Verbosity cannot be set this way!")
