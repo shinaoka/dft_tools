@@ -283,7 +283,7 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
                                                                 # case additional ASCII file is provided.
 
         # self._extra_par_file:  name of file with some additional parameters (num_zero, verbosity, T)
-        if isinstance(extra_par_file, str)  and isfile(self._extra_par_file):
+        if isinstance(extra_par_file, str)  and isfile(extra_par_file):
             self._extra_par_file = extra_par_file
         elif extra_par_file is None:
             self._extra_par_file="None"
@@ -337,7 +337,7 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
 
         self._u_matrix_opt = None  # transformation form Bloch to pseudo-Bloch smooth states
 
-        self._user_shells=False  # if user-defined  shells used then it is true otherwise it is false
+        self._user_shells=False  # if user-defined  shells used then it is true otherwise it is False (default is False)
 
         self._verbosity = None  # defines level of output verbosity
 
@@ -524,41 +524,55 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
         :type corr_shells: list of dictionaries
         """
 
-        # *********************check data from the previous run **********************************
+        # ********************* check data from the previous run **********************************
+
+
+        self._all_read = False
+        self._user_shells = False
 
         # standard shells
         if corr_shells is None:
-            self._user_shells=False
-            wann_things_to_load=["n_k", "SP", "SO", "density_required", "shells","n_shells",
-                        "corr_shells", "n_corr_shells", "T", "n_orbitals", "proj_mat",
-                        "hopping", "n_inequiv_shells", "corr_to_inequiv",
-                        "inequiv_to_corr", "rot_mat", "energy_unit",
-                        "k_dep_projection", "charge_below", "symm_op",
-                        "use_rotations", "rot_mat_time_inv", "n_reps", "dim_reps"]
+
+            wann_things_to_check=["n_k", "SP", "SO", "density_required", "shells","n_shells",
+                                 "corr_shells", "n_corr_shells", "T", "n_orbitals", "proj_mat",
+                                 "hopping", "n_inequiv_shells", "corr_to_inequiv",
+                                 "inequiv_to_corr", "rot_mat", "energy_unit",
+                                 "k_dep_projection", "charge_below", "symm_op",
+                                 "use_rotations", "rot_mat_time_inv", "n_reps", "dim_reps"]
 
             # here we just check if there is an entry, validation of entry is done later
             self._all_read = self._read_parameters_from_h5_file(subgrp=self._sumk_dft,
-                                                            things_to_load=wann_things_to_load)
+                                                                things_to_load=wann_things_to_check)
 
         # non-standard shells
         else:
-            # non standard shells and re-run
-            if self._read_parameters_from_h5_file(subgrp=self._sumk_dft,
-                                                  things_to_load=["corr_shells","n_corr_shells","shells","n_shells"],
-                                                  just_check=False):
+            # non-standard shells and re-run
+            wann_things_to_check=["n_k", "SP", "SO", "density_required",
+                                "T", "n_orbitals", "proj_mat",
+                                "hopping", "n_inequiv_shells", "corr_to_inequiv",
+                                "inequiv_to_corr", "rot_mat", "energy_unit",
+                                "k_dep_projection", "charge_below", "symm_op",
+                                "use_rotations", "rot_mat_time_inv", "n_reps", "dim_reps"]
+
+            if (self._read_parameters_from_h5_file(subgrp=self._sumk_dft,
+                                                  things_to_load=["corr_shells", "n_corr_shells", "shells", "n_shells"],
+                                                  just_check=False)
+                and
+                self._read_parameters_from_h5_file(subgrp=self._sumk_dft,
+                                                   things_to_load=wann_things_to_check)):
 
                 if self.n_shells!=len(corr_shells) or self.n_corr_shells!= len(corr_shells):
                     self.report_error("User provided correlated shells. Number of correlated shells has changed since the last run!")
 
                 try:
-                    if not all([ cmp(corr_shells[n_corr], self.corr_shells[n_corr])==0 for n_corr in range(len(self.corr_shells))]):
+                    if not all([ cmp(corr_shells[n_corr], self.corr_shells[n_corr])==0 for n_corr in range(self.n_corr_shells)]):
                         self.report_error("Correlated shells have changed since the last run!")
                 except IndexError:
                     self.report_error("Invalid user-defined correlated shells!")
 
 
                 shells=deepcopy(corr_shells)
-                for n in range(self.n_shells):
+                for n in range(len(shells)):
                     del shells[n]["SO"]
                     del shells[n]["irep"]
 
@@ -570,31 +584,20 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
                                       "shells then shells are expected to be the same as "
                                       "correlated shells apart from SO and irep entries)!")
 
+                self._all_read = True
+
             # non standard shells and fresh run
             else:
-
-                wann_things_to_load=["n_k", "SP", "SO", "density_required",
-                                     "T", "n_orbitals", "proj_mat",
-                                     "hopping", "n_inequiv_shells", "corr_to_inequiv",
-                                     "inequiv_to_corr", "rot_mat", "energy_unit",
-                                     "k_dep_projection", "charge_below", "symm_op",
-                                     "use_rotations", "rot_mat_time_inv", "n_reps", "dim_reps"]
-
-                self._all_read = self._read_parameters_from_h5_file(subgrp=self._sumk_dft,
-                                                            things_to_load=wann_things_to_load)
-
-
-                for n_corr in range(len(corr_shells)):
-                    if self.check_shell(x=corr_shells[n_corr],
-                                        t=self.__class__.corr_shells_keywords):
-                        self.make_statement("User-defined correlated shells will be used.")
-                        self.corr_shells=corr_shells
-                        self.shells=deepcopy(self.corr_shells)
-                        for n_shell in range(len(self.shells)):
-                            del self.shells[n_shell]["SO"]
-                            del self.shells[n_shell]["irep"]
-                    else:
-                        self.report_error("Invalid user-defined correlated shells!")
+                if all([self.check_shell(x=corr_shells[n_corr],
+                                         t=self.__class__.corr_shells_keywords) for n_corr in range(len(corr_shells))]):
+                    self.make_statement("User-defined correlated shells will be used.")
+                    self.corr_shells=corr_shells
+                    self.shells=deepcopy(self.corr_shells)
+                    for n_shell in range(len(self.shells)):
+                        del self.shells[n_shell]["SO"]
+                        del self.shells[n_shell]["irep"]
+                else:
+                    self.report_error("Invalid user-defined correlated shells!")
                 self.n_corr_shells=len(self.corr_shells)
                 self.n_shells=len(self.shells)
 
@@ -708,8 +711,8 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
             if isfile(self._filename+".win"):
                 one_channel = True
             elif not (isfile(self._filename+"_up.win") and isfile(self._filename+"_down.win")):
-                self.report_error("Couldn't find any of the following obligatory files (option 1) or 2) ): "+
-                                  "1) "+self._filename+".win or"+
+                self.report_error("Couldn't find any of the following obligatory files (option 1) or 2) ): \n"+
+                                  "1) "+self._filename+".win or\n"+
                                   "2) "+self._filename+"_up.win and "+self._filename+"_down.win " )
 
             if one_channel:
@@ -1337,9 +1340,8 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
                  total_orb += n_orb
 
             # 3)  Finds correlated shells
-            if not self._user_shells:
-                self._get_corr_shells()
-        self.n_corr_shells=len(self.corr_shells)
+            self._get_corr_shells()
+            self.n_corr_shells=len(self.corr_shells)
 
         # Determines the number of inequivalent correlated shells (taken from ConverterTools)
         self.n_inequiv_corr_shells, self.corr_to_inequiv, self.inequiv_to_corr=self.det_shell_equivalence(corr_shells=self.corr_shells)
@@ -1392,7 +1394,10 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
              # block of ham_r, it is ok because we look for a spacial symmetry here
              total_orb+=n_orb
 
-        # Check if initial projections from *win file are consistent with shells provided in the input file
+        # Check if the user-defined correlated shells are consistent with real representation of Hamiltonian in MLWFs
+        # In case user has defined shells local Hamiltonian should include only correlated states
+        # (like for example if we assume that p states are correlated and they are the only correlated states in the system
+        # then the local Hamiltonian is expected to be built only from those p states)
         if self._user_shells:
             for ish1 in range(self.n_shells):
                 for ish2 in range(self.n_shells):
@@ -1401,8 +1406,13 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
                         if  self._num_zero < numpy.min(numpy.abs(local_shells[ish1]["eig"]-
                                                                 local_shells[ish2]["eig"])):
                             self.report_error("Wrong block structure of input Hamiltonian,"
-                                            " correct it please (maybe num_zero parameter is set too low?)!")
+                                            " correct it please (maybe num_zero parameter is set too low,"
+                                            " maybe not consistent user-defined correlated shells and local Hamiltonian?)!")
                         break
+
+            if sum([self.shells[n_sh]["dim"]  for n_sh in range(self.n_shells)])!= self.total_MLWF:
+                self.report_error("Correlated shells and local Hamiltonian are inconsistent!")
+
 
         del local_shells
 
@@ -1415,8 +1425,11 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
                                numpy.complex) for icrsh in range(self.n_corr_shells)]
 
         for icrsh in range(self.n_corr_shells):
-            self.rot_mat[icrsh]=numpy.dot(self._R_sym[icrsh ]["rot_mat"],
-            self._R_sym[self.corr_to_inequiv[icrsh]]["rot_mat"].conjugate().transpose())
+            try:
+                self.rot_mat[icrsh]=numpy.dot(self._R_sym[icrsh ]["rot_mat"],
+                                              self._R_sym[self.corr_to_inequiv[icrsh]]["rot_mat"].conjugate().transpose())
+            except ValueError:
+                self.report_error("Rotation matrices cannot be constructed. Are valid user-provided shells in use?")
 
         # 5) Constructs Hk
         self.Hk = [[numpy.zeros((self.total_MLWF, self.total_MLWF), dtype = complex)
@@ -1457,6 +1470,12 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
         self._parameters.update(Variables)
 
 
+        if self._n_spin==2:
+            self.make_statement("Files  %s_up_hr.dat and %s_down_hr.dat have been read."%(self._filename,self._filename))
+        else:
+            self.make_statement("File  %s_hr.dat has been read."%self._filename)
+
+
     def _read_H_R_file(self,filename=None):
 
         """
@@ -1474,60 +1493,75 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
         if is_master_node():
             try:
                 with open(filename + "_hr.dat", "rb") as hr_txt_file:
-                    hr_file = cStringIO.StringIO(hr_txt_file.read())
+
+                    hr_file = hr_txt_file.readlines()
                     hr_txt_file.close()
                     dimensions = 3
+                    pos=0  # first line == date
+
+                    pos+=1 # total_MLWFs
                     try:
-                        hr_file.readline()  # first line == date
-                        total_MLWF = int(hr_file.readline()) # reads number of Wannier functions per spin
-                        nrpt = int(hr_file.readline())
-                        Vector_R_degeneracy = numpy.zeros(nrpt, dtype=int)
-                        Vector_R = numpy.zeros((nrpt, dimensions), dtype=int)
-
-                        FULL_H_R = [numpy.zeros((total_MLWF,
-                                                total_MLWF),
-                                                dtype=complex)
-                                          for n in range(nrpt)]
-
-                        ham_r = numpy.zeros((total_MLWF,
-                                            total_MLWF),
-                                            dtype=complex)
-
-                        counter = 0
-                        while counter < nrpt:
-                            for x in hr_file.readline().split():
-                                Vector_R_degeneracy[counter] = x
-                                counter += 1
-
-                        for irpt in range(nrpt):
-                            for jj in range(total_MLWF):
-                                for ii in range(total_MLWF):
-                                    line = [float(x) for x in hr_file.readline().split()]
-
-                                    if ii == 0 and jj == 0:
-                                        Vector_R[irpt] = numpy.array([int(line[0]), int(line[1]), int(line[2])])
-
-                                    indx_i=int(line[3])-1 #we count from zero
-                                    indx_j=int(line[4])-1
-                                    if ii!= indx_i or jj!=indx_j:
-                                        self.report_error("Inconsistent indices for H_R: [%s!=%s,%s!=%s]!"%(ii,indx_i,jj,indx_j))
-
-                                    FULL_H_R[irpt][ii, jj] = complex(float(line[5]), float(line[6]))
-                                    if int(line[0]) == 0 and int(line[1]) == 0 and int(line[2]) == 0:
-                                        ham_r[ii, jj] = complex(float(line[5]), float(line[6]))  #zeroth unit cell found
-
-                            #check if  FULL_H_R[irpt] is real, for well localized MLWFs HR should be real
-                            if self._num_zero<numpy.abs((FULL_H_R[irpt].imag.max()).max()):
-                                self.report_error("HR in MLWF has large complex components!")
-
-                        #check if ham_r is symmetric
-                        if not numpy.allclose(ham_r.transpose(),ham_r,atol=self._num_zero):
-                            self.report_error("Your Hamiltonian is not symmetric!")
-
-                        hr_file.close()
-
+                        total_MLWF = int(hr_file[pos])  # reads number of Wannier functions per spin
                     except ValueError:
-                        self.report_error("Inconsistent data in %s_hr.dat!"%filename)
+                        self.report_error("Invalid number of MLWFs in %s_hr.dat"%filename)
+
+                    pos+=1 # nrpt
+                    try:
+                        nrpt = int(hr_file[pos])
+                    except ValueError:
+                        self.report_error("Invalid number of R vectors!")
+
+                    Vector_R_degeneracy = numpy.zeros(nrpt, dtype=int)
+                    Vector_R = numpy.zeros((nrpt, dimensions), dtype=int)
+
+                    FULL_H_R = [numpy.zeros((total_MLWF,
+                                             total_MLWF),
+                                             dtype=complex)
+                                            for n in range(nrpt)]
+
+                    ham_r = numpy.zeros((total_MLWF,
+                                         total_MLWF),
+                                         dtype=complex)
+
+                    counter = 0
+                    while counter < nrpt:
+                        pos += 1
+                        for x in hr_file[pos].split():
+                            try:
+                                 Vector_R_degeneracy[counter] = int(x)
+                            except ValueError:
+                                 self.report_error("Cannot read degeneracy of R vectors from %s_hr.dat!"%filename)
+                            counter += 1
+
+                    for irpt in range(nrpt):
+                        for jj in range(total_MLWF):
+                            for ii in range(total_MLWF):
+                                pos += 1
+
+                                try:
+                                    line = [float(x) for x in hr_file[pos].split()]
+                                except ValueError:
+                                    self.report_error("Can't read Hamiltonian in the real representation from %s_hr.dat"%filename)
+
+                                if ii == 0 and jj == 0:
+                                    Vector_R[irpt] = numpy.array([int(line[0]), int(line[1]), int(line[2])])
+
+                                indx_i=int(line[3])-1 #we count from zero
+                                indx_j=int(line[4])-1
+                                if ii != indx_i or jj != indx_j:
+                                   self.report_error("Inconsistent indices for H_R: [%s!=%s,%s!=%s]!"%(ii, indx_i, jj, indx_j))
+
+                                FULL_H_R[irpt][ii, jj] = complex(float(line[5]), float(line[6]))
+                                if int(line[0]) == 0 and int(line[1]) == 0 and int(line[2]) == 0:
+                                    ham_r[ii, jj] = complex(float(line[5]), float(line[6]))  #zeroth unit cell found
+
+                        #check if  FULL_H_R[irpt] is real, for well localized MLWFs HR should be real
+                        if self._num_zero<numpy.abs((FULL_H_R[irpt].imag.max()).max()):
+                             self.report_error("HR in MLWF has large complex components!")
+
+                    #check if ham_r is symmetric
+                    if not numpy.allclose(ham_r.transpose(),ham_r,atol=self._num_zero):
+                        self.report_error("Your Hamiltonian is not symmetric!")
 
                 local_variable.update({"nrpt":nrpt,"total_MLWF":total_MLWF,
                                        "Vector_R_degeneracy":Vector_R_degeneracy,
@@ -1680,7 +1714,8 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
 
     def is_shell(self,shell_1st=None,shell_2nd=None):
         """
-        Checks if shell_1st is equal to  shell_2nd
+        Checks if shell_1st is equivalent to shell_2nd
+        (it is defined to be the same when l, dim, sort are the same)
 
         :param shell_1st: first shell to compare
         :type shell_1st: dict of int
@@ -1697,7 +1732,9 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
         if not self.check_shell(shell_2nd,t=self.__class__.shells_keywords):
              self.report_error("Shell was expected!")
 
-        return cmp(shell_1st,shell_2nd)==0
+        return (shell_1st["dim"]  == shell_2nd["dim"] and
+                shell_1st["l"]    == shell_2nd["l"] and
+                shell_1st["sort"] == shell_2nd["sort"])
 
 
     def compare_shells(self,shell=None, corr_shell=None):
@@ -1843,7 +1880,7 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
 
         :param filename:    Base name of file  with data
                             from Wannier90  for one particular spin channel
-        :type filename: str
+        :type filename:     str
 
         """
         err_msg="Dummy projections (identity matrices) will be used in the calculation."
@@ -1854,196 +1891,212 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
         dim2=9
 
         try:
+            if is_master_node():
+                with open(filename+".chk.fmt", "r") as input_file:
+                    lines = input_file.readlines()
+                    input_file.close()
 
-            with open(filename+".chk.fmt", "r") as input_file:
-                lines = input_file.readlines()
-                input_file.close()
+                    pos=0
+                    msg=lines[pos].replace("\n","")
+                    self.make_verbose_statement("Checkpoint file has been opened. "
+                                                "Checkpoint file was "+msg[:len(msg)-1]+".") # Print out first line, remove space before dot comment line
 
-                self.make_verbose_statement("Checkpoint file has been opened. "
-                                            "Checkpoint file was "+ lines.pop(0)) # Print out first line, comment line
-
-                # num_bands
-                try:
-                    chkpt_data["Number of bands"]=int(lines.pop(0))
-                except ValueError:
-                    self.report_warning("Invalid number of bands in %s.chk.fmt!"%filename)
-                    self._produce_dummy_projections()
-                    return
-
-                if self._total_Bloch_spin[self._name2SpinChannel[filename]]!=chkpt_data["Number of bands"]:
-                    self.report_error("Different number of bands in %s.win  and in  %s.chk.fmt!"%(filename,filename))
-
-                # number of excluded bands
-                try:
-                    chkpt_data["Number of exclude bands"]=int(lines.pop(0))
-                except ValueError:
-                    self.report_warning("Invalid number of excluded bands in %s.chk.fmt!"%filename)
-                    self._produce_dummy_projections()
-                    return
-
-                # Excluded bands
-                try:
-                    chkpt_data["Exclude_bands"]=[]
-                    for i in range(chkpt_data["Number of exclude bands"]):
-                        chkpt_data["Exclude_bands"].append(int(lines.pop(0)))
-                except ValueError:
-                    self.report_warning("Invalid  excluded bands in %s.chk.fmt!"%filename)
-                    self._produce_dummy_projections()
-                    return
-
-                temp_array=numpy.zeros((dim,dim),dtype=float)
-                # Real lattice
-                try:
-                    temp=lines.pop(0).split()
-                    if len(temp)!=dim2:
-                        self.report_warning("Invalid real lattice matrix in %s.chk.fmt!"%filename)
-                        self._produce_dummy_projections()
-                        return
-
-                    for j in range(dim):
-                        for i in range(dim):
-                            temp_array[i,j]=float(temp.pop(0))
-                    chkpt_data["Real lattice"]=deepcopy(temp_array)
-
-                except ValueError:
-                    self.report_warning("Invalid real lattice matrix in %s.chk.fmt!"%filename)
-                    self._produce_dummy_projections()
-                    return
-
-                # Reciprocal lattice
-                try:
-                    temp=lines.pop(0).split()
-                    if len(temp)!=dim2:
-                        self.report_warning("Invalid reciprocal lattice matrix!")
-                        self._produce_dummy_projections()
-                        return
-
-                    for j in range(dim):
-                        for i in range(dim):
-                            temp_array[i,j]=float(temp.pop(0))
-                    chkpt_data["Reciprocal lattice"]=deepcopy(temp_array)
-
-                except ValueError:
-                    self.report_warning("Invalid reciprocal lattice matrix in %s.chk.fmt!"%filename)
-                    self._produce_dummy_projections()
-                    return
-
-                del temp_array
-
-                # num_kpts
-                try:
-                    chkpt_data["Number of kpoints"]=int(lines.pop(0))
-                except ValueError:
-                    self.report_warning("Invalid number of excluded bands in %s.chk.fmt!"%filename)
-                    self._produce_dummy_projections()
-                    return
-
-                if self.n_k!=chkpt_data["Number of kpoints"]:
-
-                    self.report_error("Different number of kpoints in"
-                                      " %s.win  and in  %s.chk.fmt!"%(filename,filename))
-
-                # M-P grid
-                temp=lines.pop(0).split()
-                try:
-                    if len(temp)!=dim:
-                        self.report_warning("Invalid real lattice matrix in %s.chk.fmt!"%filename)
-                        self._produce_dummy_projections()
-                        return
-
-                    chkpt_data["M-P grid"]=[]
-                    for i in range(dim):
-                        chkpt_data["M-P grid"].append(int(temp.pop(0)))
-                except ValueError:
-                    self.report_warning("Invalid real lattice matrix in %s.chk.fmt!"%filename)
-                    self._produce_dummy_projections()
-                    return
-                del temp
-
-                if cmp(self.ham_nkpt,chkpt_data["M-P grid"])!=0:
-
-                    self.report_error("Different k-point grid  in %s.win"
-                                      "  and in  %s.chk.fmt!"%(filename,filename))
-
-                # k points, not used in the summary
-                for i in range(chkpt_data["Number of kpoints"]):
-                    lines.pop(0)
-
-                # nntot, not used in the summary
-                lines.pop(0)
-
-                # num wann
-                try:
-                    chkpt_data["Number of Wannier orbitals"]=int(lines.pop(0))
-                except ValueError:
-                    self.report_warning("Invalid number of Wannier orbitals in %s.chk.fmt!"%filename)
-
-                if self.total_MLWF!=chkpt_data["Number of Wannier orbitals"]:
-                    self.report_error("Different number of Wannier orbitals  "
-                                      "in %s.win  and in  %s.chk.fmt!"%(filename,filename))
-
-                # checkpoint
-                chkpt_data["checkpoint"]=lines.pop(0).strip()
-
-                # have disentanglement
-                try:
-                    idum=int(lines.pop(0))
-                    if idum==0 or idum==1:
-                        chkpt_data["Have disentanglement"]= idum==1
-                    else:
-                        self.report_error("Invalid have_disentanglement in "
-                                          "%s.chk.fmt, it should be 0 or 1!"%filename)
-
-                except ValueError:
-                    self.report_warning("Invalid have disentanglement in  %s.chk.fmt!"%filename)
-
-                if self._disentanglement_spin[self._name2SpinChannel[filename]]!=chkpt_data["Have disentanglement"]:
-                    self.report_error("Have disentanglement is different in "
-                                      "%s.win file and in %s.chk.fmt!"%(filename,filename))
-
-                self._initialize_U_matrices()
-
-                if chkpt_data["Have disentanglement"]:
-                    # omega_invariant,  not used in the summary
-                    lines.pop(0)
-
-                    # lwindow,   not used in the summary
-                    for nkp in range(chkpt_data["Number of kpoints"]):
-                        for i in range(chkpt_data["Number of bands"]):
-                            lines.pop(0)
-
-                    # ndimwin,  number of bands inside energy window
-
+                    # num_bands
+                    pos+=1
                     try:
+                         chkpt_data["Number of bands"]=int(lines[pos])
+                    except ValueError:
+                         self.report_warning("Invalid number of bands in %s.chk.fmt!"%filename)
+                         self._produce_dummy_projections()
+                         return
+
+                    if self._total_Bloch_spin[self._name2SpinChannel[filename]]!=chkpt_data["Number of bands"]:
+                         self.report_error("Different number of bands in %s.win  and in  %s.chk.fmt!"%(filename,filename))
+
+                    # number of excluded bands
+                    pos+=1
+                    try:
+                         chkpt_data["Number of exclude bands"]=int(lines[pos])
+                    except ValueError:
+                         self.report_warning("Invalid number of excluded bands in %s.chk.fmt!"%filename)
+                         self._produce_dummy_projections()
+                         return
+
+                    # Excluded bands
+                    try:
+                         chkpt_data["Exclude_bands"]=[]
+                         for i in range(chkpt_data["Number of exclude bands"]):
+                             pos+=1
+                             chkpt_data["Exclude_bands"].append(int(lines[pos]))
+                    except ValueError:
+                         self.report_warning("Invalid  excluded bands in %s.chk.fmt!"%filename)
+                         self._produce_dummy_projections()
+                         return
+
+                    temp_array=numpy.zeros((dim,dim),dtype=float)
+                    # Real lattice
+                    try:
+                         pos+=1
+                         temp=lines[pos].split()
+                         if len(temp)!=dim2:
+                             self.report_warning("Invalid real lattice matrix in %s.chk.fmt!"%filename)
+                             self._produce_dummy_projections()
+                             return
+
+                         for j in range(dim):
+                             for i in range(dim):
+                                 temp_array[i,j]=float(temp.pop(0))
+                         chkpt_data["Real lattice"]=deepcopy(temp_array)
+
+                    except ValueError:
+                         self.report_warning("Invalid real lattice matrix in %s.chk.fmt!"%filename)
+                         self._produce_dummy_projections()
+                         return
+
+
+                    # Reciprocal lattice
+                    try:
+                        pos+=1
+                        temp=lines[pos].split()
+                        if len(temp)!=dim2:
+                            self.report_warning("Invalid reciprocal lattice matrix!")
+                            self._produce_dummy_projections()
+                            return
+
+                        for j in range(dim):
+                             for i in range(dim):
+                                 temp_array[i,j]=float(temp.pop(0))
+                        chkpt_data["Reciprocal lattice"]=deepcopy(temp_array)
+                    except ValueError:
+                        self.report_warning("Invalid reciprocal lattice matrix in %s.chk.fmt!"%filename)
+                        self._produce_dummy_projections()
+                        return
+
+                    del temp_array
+
+
+                    # num_kpts
+                    try:
+                        pos+=1
+                        chkpt_data["Number of kpoints"]=int(lines[pos])
+                    except ValueError:
+                        self.report_warning("Invalid number of excluded bands in %s.chk.fmt!"%filename)
+                        self._produce_dummy_projections()
+                        return
+
+                    if self.n_k!=chkpt_data["Number of kpoints"]:
+
+                         self.report_error("Different number of kpoints in"
+                                           " %s.win  and in  %s.chk.fmt!"%(filename, filename))
+
+
+                    # M-P grid
+                    pos+=1
+                    temp=lines[pos].split()
+                    try:
+                        if len(temp)!=dim:
+                            self.report_warning("Invalid real lattice matrix in %s.chk.fmt!"%filename)
+                            self._produce_dummy_projections()
+                            return
+
+                        chkpt_data["M-P grid"]=[]
+                        for i in range(dim):
+                             chkpt_data["M-P grid"].append(int(temp.pop(0)))
+                    except ValueError:
+                         self.report_warning("Invalid real lattice matrix in %s.chk.fmt!"%filename)
+                         self._produce_dummy_projections()
+                         return
+                    del temp
+
+                    if cmp(self.ham_nkpt,chkpt_data["M-P grid"])!=0:
+
+                         self.report_error("Different k-point grid  in %s.win"
+                                           "  and in  %s.chk.fmt!"%(filename, filename))
+
+
+                    # k points, not used in the converter
+                    for i in range(chkpt_data["Number of kpoints"]):
+                         pos+=1
+                    # nntot, not used in the converter
+                    pos+=1
+
+                    # num wann
+                    try:
+                        pos+=1
+                        chkpt_data["Number of Wannier orbitals"]=int(lines[pos])
+                    except ValueError:
+                        self.report_warning("Invalid number of Wannier orbitals in %s.chk.fmt!"%filename)
+
+                    if self.total_MLWF!=chkpt_data["Number of Wannier orbitals"]:
+                        self.report_error("Different number of Wannier orbitals  "
+                                          "in %s.win  and in  %s.chk.fmt!"%(filename, filename))
+
+                    # checkpoint
+                    pos+=1
+                    chkpt_data["checkpoint"]=lines[pos].strip()
+
+                    # have disentanglement
+                    try:
+                        pos+=1
+                        idum=int(lines[pos])
+                        if idum==0 or idum==1:
+                            chkpt_data["Have disentanglement"]= (idum==1)
+                        else:
+                            self.report_error("Invalid 'have_disentanglement' keyword in "
+                                              "%s.chk.fmt, it should be 0 or 1!"%filename)
+                    except ValueError:
+                        self.report_error("Invalid have disentanglement in  %s.chk.fmt!"%filename)
+
+                    if self._disentanglement_spin[self._name2SpinChannel[filename]] != chkpt_data["Have disentanglement"]:
+                        self.report_error("Have disentanglement is different in " +
+                                          "%s.win file and in %s.chk.fmt!"%(filename, filename))
+
+                    self._initialize_U_matrices()
+                    print "chkpt_data['Have disentanglement']:",  chkpt_data["Have disentanglement"]
+
+                    if chkpt_data["Have disentanglement"]:
+                        # omega_invariant,  not used in the summary
+                        pos+=1
+                        # lwindow,   not used by the converter
                         for nkp in range(chkpt_data["Number of kpoints"]):
-                            self.n_orbitals[nkp,self._name2SpinChannel[filename]]=int(lines.pop(0))
-                    except ValueError:
-                        self.report_warning("Invalid number of bands inside energy window in  %s.chk.fmt!"%filename)
+                            for i in range(chkpt_data["Number of bands"]):
+                                pos+=1
 
-                    # U_matrix_opt
+                        # ndimwin,  number of bands inside energy window
+
+                        try:
+                            for nkp in range(chkpt_data["Number of kpoints"]):
+                                pos+=1
+                                self.n_orbitals[nkp,self._name2SpinChannel[filename]]=int(lines[pos])
+                        except ValueError:
+                            self.report_warning("Invalid number of bands inside energy window in  %s.chk.fmt!"%filename)
+                        print "self.n_orbitals[nkp,self._name2SpinChannel[filename]]=", self.n_orbitals[:,self._name2SpinChannel[filename]]
+                        # U_matrix_opt
+                        try:
+                            for  nkp in range(chkpt_data["Number of kpoints"]):
+                                for j in range(chkpt_data["Number of Wannier orbitals"]):
+                                    for i   in range(chkpt_data["Number of bands"]):
+                                        pos+=1
+                                        temp=lines[pos].split() # two entries per line are expected real, imag
+                                        self._u_matrix_opt[i,j,self._name2SpinChannel[filename],nkp]=float(temp[0])+1j*float(temp[1])
+                        except ValueError:
+                            self.report_warning("Invalid value of matrix U_opt!")
+                            self._produce_dummy_projections()
+                            return
+                    else:
+                        for nkp in range(chkpt_data["Number of kpoints"]):
+                            self.n_orbitals[nkp,self._name2SpinChannel[filename]]=self.total_MLWF
+
+                    # U_matrix
                     try:
                         for  nkp in range(chkpt_data["Number of kpoints"]):
-                           for j in range(chkpt_data["Number of Wannier orbitals"]):
-                              for i   in range(chkpt_data["Number of bands"]):
-                                  temp=lines.pop(0).split(maxsplit=1) # two entries per line are expected real, imag
-                                  self._u_matrix_opt[i,j,self._name2SpinChannel[filename],nkp]=float(temp[0])+1j*float(temp[1])
+                            for j in range(chkpt_data["Number of Wannier orbitals"]):
+                                for i   in range(chkpt_data["Number of Wannier orbitals"]):
+                                    pos+=1
+                                    temp=lines[pos].split() # two entries per line are expected real, imag
+                                    self._u_matrix[i,j,self._name2SpinChannel[filename],nkp]=float(temp[0])+1j*float(temp[1])
                     except ValueError:
-                        self.report_warning("Invalid value of matrix U_opt!")
-                        self._produce_dummy_projections()
-                        return
-                else:
-                    for nkp in range(chkpt_data["Number of kpoints"]):
-                        self.n_orbitals[nkp,self._name2SpinChannel[filename]]=self.total_MLWF
-
-                # U_matrix
-                try:
-                        for  nkp in range(chkpt_data["Number of kpoints"]):
-                           for j in range(chkpt_data["Number of Wannier orbitals"]):
-                              for i   in range(chkpt_data["Number of Wannier orbitals"]):
-                                  temp=lines.pop(0).split() # two entries per line are expected real, imag
-                                  self._u_matrix[i,j,self._name2SpinChannel[filename],nkp]=float(temp[0])+1j*float(temp[1])
-                except ValueError:
-                        self.report_warning("Invalid value of matrix U_opt!")
+                        self.report_warning("Invalid value of matrix U!")
                         self._produce_dummy_projections()
                         return
 
@@ -2054,6 +2107,7 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
             return
 
         self.make_statement("Information from formatted file %s.chk.fmt file has been read."%filename)
+
         return chkpt_data
 
 

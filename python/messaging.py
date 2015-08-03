@@ -11,6 +11,13 @@ class Report(object):
         *Simple error handling.*
     """
     edge_line="!------------------------------------------------------------------------------------!"
+    model_line="                                                                                     !"
+    # -2 because we need space for '!' at the end and at the beginning, between is the comment broken into lines
+    line_width=len(model_line)-2
+
+    # we need to add symbol - to mark that we break a word so -1,
+    # another -1 because we need a space between frame and a broken word
+    internal_width=line_width-2
 
     def __init__(self):
         self._verbosity=None
@@ -27,11 +34,13 @@ class Report(object):
         comm = mpi.MPI.COMM_WORLD
         if mpi.is_master_node():
             if isinstance(string, str):
-                inspect_data = getframeinfo(currentframe().f_back)
-                msg=("Error: " + string +"(file: %s, line: %s, in function: %s)"
-                     % (inspect_data.filename, inspect_data.lineno, inspect_data.function)+
-                     " (in "+self.__class__.__name__+")")
+                frame_info = getframeinfo(currentframe().f_back)
+                msg=("Error: " + string+"\n"+ "(file: %s "%frame_info.filename+
+                                          ", line: %s"%frame_info.lineno+
+                                          ", in function: " + frame_info.function+
+                                          " (in " + self.__class__.__name__+")")
                 self._print_message(input_message=msg)
+
             else:
                 self._print_message("Wrong argument of the report_error" +
                         "function. Please send one string as an input parameter!")
@@ -114,49 +123,74 @@ class Report(object):
         :param input_message: Message for the user which will be formatted
         :type input_message: str
         :return String which stores a nice frame with a message ready for printing
+        :rtype: str
 
         """
 
-        model_line="                                                                                     !"
-        # -2 because we need space for '!' at the end and at the beginning, between is the comment broken into lines
-        line_width=len(model_line)-2
-        words=input_message.replace("\n"," ").split()
+
+        if input_message.find(" ENDLINE ")!=-1:
+            self.report_error("ENDLINE is a special keyword. Please redefine your comment!")
+
+        words=input_message.replace("\n"," ENDLINE ").split()
+        #words=input_message.split()
 
         current_line=""
         message=""
         for indx,word in enumerate(words):
 
             # in case word is really long, break it into lines so that each line fits into frame
+            if len(word)>self.__class__.line_width:
+                message+=self._break_msg_lines(word)
 
-            if len(word)>line_width:
-                # we need to add symbol - to mark that we break a word so -1,
-                # another -1 because we need a space between frame and a broken word
-                internal_width=line_width-2
-                num_lines=int(len(word)/float(internal_width)+1.0) # take into account also potential unfilled last line
-
-                for n in range(num_lines-1): # without the last line, last line a special case
-
-                    message+=self._make_inner_message(input_message=word[n*internal_width:(n+1)*internal_width]+"-")
-
-                # last line of a broken word
-                n=+1
-                message+=self._make_inner_message(input_message=word[n*internal_width:(n+1)*internal_width])
+            elif word=="ENDLINE":
+                message+=self._make_line(line=current_line)
+                current_line=""
 
             # case of full lines
-            elif (len(current_line)+len(" "+word))<line_width:
+            elif (len(current_line)+len(" "+word))<self.__class__.line_width:
                 current_line+=" "+word
+
             else:
-                #message+=line+ "\r!"+current_line+"\n"
-                message+="!"+current_line+" "*(line_width-len(current_line))+"!\n"
+                message+=self._make_line(line=current_line)
                 current_line=" "+word
 
             # last line which is not a full line
             if indx==(len(words)-1):
-                #message+=line+ "\r!"+current_line+"\n"
-                message+="!"+current_line+" "*(line_width-len(current_line))+"!\n"
+                message+=self._make_line(line=current_line)
 
         return message
 
+    def _make_line(self, line=None):
+        """
+
+        :param line: line to put inside frame
+        :type line: str
+        :return: line inside of frame
+        :rtype: str
+        """
+        return "!"+line+" "*(self.__class__.line_width-len(line))+"!\n"
+
+    def _break_msg_lines(self, msg=None):
+        """
+        Breaks a long word into many lines
+        :param msg: long word to break into lines
+        :type msg: str
+        :return: long word broken into lines
+        :rtype str
+        """
+
+        num_lines=int(len(msg)/float(self.__class__.internal_width)+1.0) # take into account also potential unfilled last line
+        message=""
+
+        for n in range(num_lines-1): # without the last line, last line a special case
+
+            message+="! "+msg[n*self.__class__.internal_width:(n+1)*self.__class__.internal_width]+"-"+"!\n"
+
+        # last line of a broken word
+        n=+1
+        message+=self._make_line(line=" "+msg[n*self.__class__.internal_width:(n+1)*self.__class__.internal_width])
+
+        return message
 
 class Readh5file(Report):
      """
@@ -183,11 +217,12 @@ class Readh5file(Report):
         :type things_to_load: 	list of str
 
         :param just_check:      if set to true then only checks if items are in the
-                                directory  subgrp, otherwise they will be loaded to the attributes of inheriting class
+                                directory  subgrp, otherwise they will be loaded to the attributes of inheriting class;
+                                the default value is True
         :type                   bool
 
         :return:                True if all items from the list found otherwise False
-        :rtype: bool
+        :rtype: boolean
 
         """
         if not just_check:
@@ -381,6 +416,7 @@ class Check(Report):
         Checks if parameter is a list, dict, 'None' or  numpy._ndarray
         :param par:  Parameter to check
         :return: False if par is a list, dict, 'None' or  numpy._ndarray otherwise True
+        :rtype: boolean
         """
         return not ( isinstance(par, numpy.ndarray) or
                      isinstance(par, list) or
@@ -479,6 +515,7 @@ class Check(Report):
         :type hdf_dir: str
 
         :return: True if parameters have changed, False otherwise
+        :rtype: boolean
         """
         self._parameters_to_check=dictionary
         if mpi.is_master_node():
@@ -601,7 +638,8 @@ class Check(Report):
         :param n_corr: number of correlated shell
         :type n_corr: int
 
-        :return: bool, True if num_corr is valid otherwise False
+        :return: True if num_corr is valid otherwise False
+        :rtype: boolean
         """
         return (isinstance(n_corr, int) and
               0 <= n_corr < self.n_corr_shells)
@@ -620,6 +658,7 @@ class Check(Report):
         :return: True if the structure of shell  is correct otherwise False
                  Structure of shell is considered to be correct if keywords of
                  x are equal to t and  for each key-value in x all values are of type int
+        :rtype: boolean
 
         """
 
@@ -647,7 +686,8 @@ class Check(Report):
         :param n_corr: number of inequivalent correlated shell to be checked
         :type n_corr: int
 
-        :return: bool, True if num_corr is valid otherwise it is False.
+        :return: True if num_corr is valid otherwise it is False.
+        :rtype: boolean
         """
         if not self.n_inequiv_corr_shells is None:
 
