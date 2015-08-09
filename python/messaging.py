@@ -689,14 +689,15 @@ class Check(Report):
         :return: True if num_corr is valid otherwise it is False.
         :rtype: boolean
         """
+        
         if not self.n_inequiv_corr_shells is None:
 
             return  (isinstance(n_corr, int) and
                      0 <= n_corr < self.n_inequiv_corr_shells)
-        elif not self.__class__.n_inequiv_corr_shells is None:
+        elif not self.__class__._n_inequiv_corr_shells is None:
 
             return  (isinstance(n_corr, int) and
-                     0 <= n_corr < self.__class__.n_inequiv_corr_shells)
+                     0 <= n_corr < self.__class__._n_inequiv_corr_shells)
         else:
             self.report_error("Can't check if valid inequivalent shell!")
 

@@ -1801,7 +1801,7 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
 
                 self.report_error("Inconsistency between shells and corr_shells!")
 
-        return n_orb,offset
+        return n_orb, offset
 
 
     def _set_U_None(self):
@@ -1824,8 +1824,8 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
 
     def _set_proj_mat_dummy(self):
         """
-        Redefines the projection matrices in case dummy projections are used.
-        In scenario in dummy projections are used number of MLWFs and Bloch states is assumed to be the same.
+        Redefines the shape of projection matrices in case dummy projections are used.
+        In scenario  dummy projections are used number of MLWFs and Bloch states is assumed to be the same.
         """
         
         self.total_Bloch=self.total_MLWF
@@ -2052,7 +2052,6 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
                                           "%s.win file and in %s.chk.fmt!"%(filename, filename))
 
                     self._initialize_U_matrices()
-                    print "chkpt_data['Have disentanglement']:",  chkpt_data["Have disentanglement"]
 
                     if chkpt_data["Have disentanglement"]:
                         # omega_invariant,  not used in the summary
@@ -2070,7 +2069,7 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
                                 self.n_orbitals[nkp,self._name2SpinChannel[filename]]=int(lines[pos])
                         except ValueError:
                             self.report_warning("Invalid number of bands inside energy window in  %s.chk.fmt!"%filename)
-                        print "self.n_orbitals[nkp,self._name2SpinChannel[filename]]=", self.n_orbitals[:,self._name2SpinChannel[filename]]
+
                         # U_matrix_opt
                         try:
                             for  nkp in range(chkpt_data["Number of kpoints"]):
@@ -2264,7 +2263,7 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
         """
 
         for icrsh in range(self.n_corr_shells):
-            n_orb,offset=self.eval_offset(n_corr=icrsh)
+            n_orb, offset=self.eval_offset(n_corr=icrsh)
             for ik in range(self.n_k):
                 for isp in range(self._n_spin):
                     self.proj_mat[ik,isp,icrsh,0:n_orb,offset:offset+n_orb] = numpy.identity(n_orb)
@@ -2284,7 +2283,6 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
 
 
         if self._dummy_projections_used:
-
             for k in range(self.n_k):
                 for s in range(self._n_spin):
 
