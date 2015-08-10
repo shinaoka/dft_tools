@@ -1,8 +1,12 @@
+"""
+I/O class for Wannier converter.
+"""
 import re
 import json as string_converter
 
 from pytriqs.utility import mpi
 from pytriqs.applications.dft.messaging import Check, Bracket
+
 
 class AsciiIO(Check):
     """
@@ -85,13 +89,14 @@ class AsciiIO(Check):
 
         """
         if mpi.is_master_node():
-            #basic check of input
+            # basic check of input
             if not isinstance(default_dic, dict):
                 self.report_error("Default parameters should have a form of a python dictionary!")
 
             if isinstance(variable_list_string_val, list):
 
-                if not all([isinstance(variable_list_string_val[i], str) for i in range(len(variable_list_string_val))]):
+                if not all([isinstance(variable_list_string_val[i], str)
+                            for i in range(len(variable_list_string_val))]):
                     self.report_error("All elements should be of type str!")
             else:
                 self.report_error("List was expected!")
@@ -105,7 +110,7 @@ class AsciiIO(Check):
                 with open(file_to_read, "rb") as input_file:
                     lines = input_file.readlines()
                     input_file.close()
-                    for count_line,line in enumerate(lines):
+                    for count_line, line in enumerate(lines):
                         count_words = 0  # we start from the new line
 
                         # remove comments
@@ -131,10 +136,10 @@ class AsciiIO(Check):
                                     keyword = value
                                     temp_line_indx = words_in_line.index(value)
 
-                                    if not (
-                                        brackets_inspector.are_brackets_ended() or brackets_inspector.show_brackets() is None):
-                                        self.report_error("Wrong parenthesis  detected in PARAMETERS file. "
-                                                          + "Please correct PARAMETERS file and restart the application ")
+                                    if not (brackets_inspector.are_brackets_ended() or
+                                            brackets_inspector.show_brackets() is None):
+                                        self.report_error("Wrong parenthesis  detected in PARAMETERS file. " +
+                                                          "Please correct PARAMETERS file and restart the application ")
                                     value_over_lines = ""
 
                                     for part_of_value in words_in_line[(temp_line_indx + 1):]:
@@ -143,7 +148,7 @@ class AsciiIO(Check):
                                             brackets_inspector.add_brackets(re.sub(pattern="[a-zA-Z0-9-0]*",
                                                                                    repl=" ",
                                                                                    string=part_of_value
-                                            ).replace(":", "").
+                                                                                   ).replace(":", "").
                                                                             replace("'", "").
                                                                             replace(".", "").
                                                                             replace(", ", "").
@@ -154,7 +159,7 @@ class AsciiIO(Check):
                                                                             replace("*", "").
                                                                             replace("/", "").
                                                                             split()
-                                            )
+                                                                           )
 
                                             # explanation:
                                             # re sub
@@ -177,33 +182,35 @@ class AsciiIO(Check):
                                         else:
                                             break  # next keyword
 
-                                #case of redefinition
+                                # case of redefinition
                                 elif value in variable_list:
                                     if self._verbosity == 2:
                                         self.make_statement("Redefinition of keyword " + value +
-                                                            " in PARAMETERS file at line %s. " % (count_line +1) +
-                                                            "It will not be taken into account.") # first line is marked as 1
+                                                            " in PARAMETERS file at line %s. " % (count_line + 1) +
+                                                            "It will not be taken into account.")
+                                    # first line is marked as 1
 
-                                #case of value over few lines
+                                # case of value over few lines
                                 elif not brackets_inspector.are_brackets_ended():
                                     temp_line_indx = words_in_line.index(value)
 
                                     for part_of_value in words_in_line[temp_line_indx:]:
                                         if part_of_value not in variable_list:
                                             # loads all brackets to brackets_inspector
-                                            brackets_inspector.add_brackets(re.sub(pattern="[a-zA-Z0-9-0]*",
-                                                                                   repl=" ",
-                                                                                   string=part_of_value).replace(":", "").
-                                                                                                         replace("'", "").
-                                                                                                         replace(".", "").
-                                                                                                         replace(", ", "").
-                                                                                                         replace("_", "").
-                                                                                                         replace('"', '').
-                                                                                                         replace("+", "").
-                                                                                                         replace("-", "").
-                                                                                                         replace("*", "").
-                                                                                                         replace("/", "").
-                                                                                                         split()
+                                            brackets_inspector.add_brackets(
+                                                re.sub(pattern="[a-zA-Z0-9-0]*",
+                                                       repl=" ",
+                                                       string=part_of_value).replace(":", "").
+                                                                             replace("'", "").
+                                                                             replace(".", "").
+                                                                             replace(", ", "").
+                                                                             replace("_", "").
+                                                                             replace('"', '').
+                                                                             replace("+", "").
+                                                                             replace("-", "").
+                                                                             replace("*", "").
+                                                                             replace("/", "").
+                                                                             split()
                                                                             )
 
                                             brackets_inspector.find_parenthesis()
@@ -212,12 +219,12 @@ class AsciiIO(Check):
                                         else:
                                             break  # new keyword
 
-                                #check if whole value  was read, all value read when all brackets are paired
+                                # check if whole value  was read, all value read when all brackets are paired
                                 if ((brackets_inspector.are_brackets_ended() or
-                                             brackets_inspector.show_brackets() is None) and not
-                                    keyword == ""):
+                                     brackets_inspector.show_brackets() is None) and not
+                                     keyword == ""):
 
-                                    #special treatment for the string values, no conversion is needed
+                                    # special treatment for the string values, no conversion is needed
                                     if keyword in variable_list_string_val:
                                         if len(value_over_lines.split()) == 1:
                                             default_dic[keyword] = value_over_lines
@@ -235,44 +242,48 @@ class AsciiIO(Check):
             except IOError:
                 self.report_error("Opening file %s failed!" % file_to_read)
 
-            #Check if all obligatory keywords have been defined
+            # Check if all obligatory keywords have been defined
             for key in default_dic:
                 if default_dic[key] is None:
                     self.report_error("Not all required input parameters " +
                                       "are defined. %s is not declared!" % key)
 
 
-            #convert Unicode entries to strings
+            # convert Unicode entries to strings
             for key in default_dic:
 
-                #1) convert Unicode or strings with additional quotations ("") entries in one value keywords
+                # 1) convert Unicode or strings with additional quotations ("") entries in one value keywords
                 if isinstance(default_dic[key], str):
                     str_key = str(default_dic[key]).replace('"', '').replace("'", "")
                     default_dic[key] = str_key
                 elif isinstance(default_dic[key], unicode):
                     str_key = str(default_dic[key]).replace("u'", "'").replace("'", "")
                     default_dic[key] = str_key
-                #2) convert Unicode entries  in lists/dictionaries
+                # 2) convert Unicode entries  in lists/dictionaries
                 elif isinstance(default_dic[key], list) or isinstance(default_dic[key], dict):
                     self.convert_unicode_to_str(default_dic[key])
 
 
     def convert_unicode_to_tuple(self, item=None):
-        """Takes input in the form u"(el_1, el_2,....)"
-           and converts it to  (el_1, el_2,....) using json module
+        """
+        Takes input in the form u"(el_1, el_2,....)"
+        and converts it to  (el_1, el_2,....) using json module
+
+        :param item: string to convert into tuple
+        :type item: str
         """
 
-        #we actually load string to json which contain list
+        # we actually load string to json which contain list
         assert isinstance(item, unicode) or isinstance(item, str)
-        new_decoded_item=string_converter.loads(str(item).replace("'", '"')
-                                             .replace("(", "[")
-                                             .replace(")", "]"))
-        decoded_item=[]
+        new_decoded_item = string_converter.loads(str(item).replace("'", '"')
+                                                           .replace("(", "[")
+                                                           .replace(")", "]"))
+        decoded_item = []
         for element in new_decoded_item:
-            if isinstance(element,unicode):
-                 decoded_item.append(str(element).replace("u'", "'"))
+            if isinstance(element, unicode):
+                decoded_item.append(str(element).replace("u'", "'"))
             else:
-                 decoded_item.append(element)
+                decoded_item.append(element)
 
         return tuple(decoded_item)  # decode_item is a list, we convert it to a tuple
 
@@ -292,8 +303,9 @@ class AsciiIO(Check):
             Converts unicode to python str, works for nested dicts and lists (recursive algorithm).
             Works for list in which entry is a tuple of items or one item only (item= one string, one float, ...etc. )
             Works for dictionary in which value/keyword is a tuple of items  or one item only
-            In case tuple is a  keyword of the dictionary it will be converted to python str with a tuple brackets  -> "( )"
-            (keywords in the dictionary are expected to be be a string or one of the primitive type of python but not tuple),
+            In case tuple is a  keyword of the dictionary it will be converted to python str with a
+            tuple brackets  -> "( )" (keywords in the dictionary are expected to be be
+            a string or one of the primitive type of python but not tuple),
             in case of tuple value in dictionary, it will be converted to tuple,
             all unicode will be removed from the entries of tuple.
 
@@ -303,12 +315,12 @@ class AsciiIO(Check):
         """
 
         if isinstance(objectToCheck, list):
-             for i in range(len(objectToCheck)):
-                objectToCheck[i]=self.convert_unicode_to_str(objectToCheck[i])
+            for i in range(len(objectToCheck)):
+                objectToCheck[i] = self.convert_unicode_to_str(objectToCheck[i])
 
         elif isinstance(objectToCheck, dict):
             for item in objectToCheck:
-                if isinstance(item,unicode):
+                if isinstance(item, unicode):
 
                     decoded_item = self._convert_unicode_to_string_core(item)
                     item_dict = objectToCheck[item]
@@ -318,30 +330,31 @@ class AsciiIO(Check):
 
                 objectToCheck[item] = self.convert_unicode_to_str(objectToCheck[item])
 
-        #tuple in  a form of string found as value
-        elif ( (isinstance(objectToCheck, unicode) or (isinstance(objectToCheck, str)))
-                 and '(' in objectToCheck and  ')' in objectToCheck):
+        # tuple in  a form of string found as value
+        elif ((isinstance(objectToCheck, unicode) or isinstance(objectToCheck, str)) and
+              '(' in objectToCheck and
+              ')' in objectToCheck):
 
-                  objectToCheck = self.convert_unicode_to_tuple(objectToCheck)
-                  self.convert_unicode_to_str(objectToCheck) # to check if all elements are ok
+            objectToCheck = self.convert_unicode_to_tuple(objectToCheck)
+            self.convert_unicode_to_str(objectToCheck)  # to check if all elements are ok
 
-        #tuple
+        # tuple
         elif isinstance(objectToCheck, tuple):
-            temp_l=[]
+            temp_l = []
             for item in objectToCheck:
                 if isinstance(item, unicode):
                     item = self._convert_unicode_to_string_core(item)
                 temp_l.append(item)
             objectToCheck = tuple(temp_l)
 
-        #unicode element
+        # unicode element
         elif isinstance(objectToCheck, unicode):
-             objectToCheck = self._convert_unicode_to_string_core(objectToCheck)
+            objectToCheck = self._convert_unicode_to_string_core(objectToCheck)
 
         return objectToCheck
 
 
-    def read_ASCII_fortran_file(self, file_to_read = None, default_dic=None):
+    def read_ASCII_fortran_file(self, file_to_read=None, default_dic=None):
         """
         Reads data from ASCII file which is expected to be an input for
         Fortran programs (like Wannier90). Short characteristics of input format in read_txt_fortran_file::
@@ -398,7 +411,7 @@ class AsciiIO(Check):
             variable_list = default_dic.keys()
 
             # make sure that all keywords are with only lower case letter
-            for indx,word in enumerate(variable_list):
+            for indx, word in enumerate(variable_list):
                 if not variable_list[indx] == word.lower():
                     self.report_error("All keywords should be with only lower case letter!")
 
@@ -406,29 +419,29 @@ class AsciiIO(Check):
             in_block = False
             value = ""
             keyword = ""
-            comment_marker = ["!","#"]
+            comment_marker = ["!", "#"]
             try:
                 with open(file_to_read, "r") as input_file:
                     lines = input_file.readlines()
                     input_file.close()
-                    for num_line,line in enumerate(lines):
+                    for num_line, line in enumerate(lines):
                         # remove comments
                         for a in comment_marker:
                             indx = line.find(a)
                             if indx > -1:
-                                line = line[:indx]+"\n"
-
-
+                                line = line[:indx] + "\n"
 
                         if line.strip():  # ignore blank lines
-                            current_line=line.replace("="," ").replace(":"," ")
-                            words_in_line=current_line.split()
+                            current_line = line.replace("=", " ").replace(":", " ")
+                            words_in_line = current_line.split()
 
-                            if words_in_line[0].lower() == "end" and in_block: # end of block
+                            if words_in_line[0].lower() == "end" and in_block:  # end of block
 
                                 in_block = False
-                                if not words_in_line[1] == keyword: self.report_error("Wrong format of the block!")
-                                if not len(words_in_line) == 2: self.report_error("Wrong format of the block!")
+                                if not words_in_line[1] == keyword:
+                                    self.report_error("Wrong format of the block!")
+                                if not len(words_in_line) == 2:
+                                    self.report_error("Wrong format of the block!")
 
 
                             elif words_in_line[0].lower() == "begin":  # block for few lines has been found
@@ -439,25 +452,28 @@ class AsciiIO(Check):
                                         in_block = True
                                         variable_list_temp.remove(keyword)
                                     else:
-                                        self.report_warning("Redefinition of keyword in line %s"%(num_line+1)) #first line is marked as 1
+                                        self.report_warning("Redefinition of keyword in line %s" % (num_line + 1))
+                                        # first line is marked as 1
 
-                                if not len(words_in_line) == 2: self.report_error("Wrong format of the block!")
+                                if not len(words_in_line) == 2:
+                                    self.report_error("Wrong format of the block!")
 
                             elif in_block:
 
-                                value+=line
+                                value += line
 
                             elif words_in_line[0].lower() in variable_list:
 
                                 if words_in_line[0].lower() in variable_list_temp:
                                     keyword = words_in_line[0].lower()
                                     variable_list_temp.remove(keyword)
-                                    value=current_line[line.find(words_in_line[0])+len(keyword):]
+                                    value = current_line[line.find(words_in_line[0]) + len(keyword):]
                                 else:
-                                    self.report_warning("Redefinition of keyword in line %s"%(num_line+1)) #first line is marked as 1
+                                    self.report_warning("Redefinition of keyword in line %s" % (num_line + 1))
+                                    # first line is marked as 1
                             if not in_block and keyword != "":
                                 default_dic[keyword] = value.strip()
-                                value=""
+                                value = ""
                                 keyword = ""
 
 
@@ -484,7 +500,7 @@ class AsciiIO(Check):
                     default_dic[key] = str_key
 
 
-    def set_verbosity(self, verbosity = None):
+    def set_verbosity(self, verbosity=None):
         """
 
         :param verbosity: new verbosity
@@ -492,7 +508,7 @@ class AsciiIO(Check):
 
         """
         if not isinstance(verbosity, int):
-            if verbosity > 2 or verbosity<0:
+            if verbosity > 2 or verbosity < 0:
                 self.report_error("verbosity parameter has the wrong value. It should be int from [0, 2]")
             self.report_error("verbosity parameter has the wrong value!")
         else:
@@ -500,10 +516,14 @@ class AsciiIO(Check):
 
     @property
     def verbosity(self):
+        """
+
+        :return: current value of verbosity
+        """
         return self._verbosity
 
     @verbosity.setter
-    def verbosity(self,val=None):
+    def verbosity(self, val=None):
         """
 
         :param val:  potential new value of verbosity

@@ -1,3 +1,6 @@
+"""
+Stores basic helper classes  for Wannier converter.
+"""
 import numpy
 from inspect import getframeinfo, currentframe
 
@@ -5,23 +8,24 @@ from inspect import getframeinfo, currentframe
 from pytriqs.archive import HDFArchive
 from pytriqs.utility import mpi
 
+
 # ****** Report Class ***************
 class Report(object):
     """
         *Simple error handling.*
     """
-    edge_line="!------------------------------------------------------------------------------------!"
-    model_line="                                                                                     !"
+    edge_line = "!------------------------------------------------------------------------------------!"
+    model_line = "                                                                                     !"
     # -2 because we need space for '!' at the end and at the beginning, between is the comment broken into lines
-    line_width=len(model_line)-2
+    line_width = len(model_line) - 2
 
     # we need to add symbol - to mark that we break a word so -1,
     # another -1 because we need a space between frame and a broken word
-    internal_width=line_width-2
+    internal_width = line_width - 2
 
     def __init__(self):
-        self._verbosity=None
-        self._filename=None
+        self._verbosity = None
+        self._filename = None
 
 
     def report_error(self, string):
@@ -35,31 +39,31 @@ class Report(object):
         if mpi.is_master_node():
             if isinstance(string, str):
                 frame_info = getframeinfo(currentframe().f_back)
-                msg=("Error: " + string+"\n"+ "(file: %s "%frame_info.filename+
-                                          ", line: %s"%frame_info.lineno+
-                                          ", in function: " + frame_info.function+
-                                          " (in " + self.__class__.__name__+")")
+                msg = ("Error: " + string + "\n" + "(file: %s" % frame_info.filename +
+                                                   ", line: %s" % frame_info.lineno +
+                                                   ", in function: " + frame_info.function +
+                                                   " (in " + self.__class__.__name__ + ")")
                 self._print_message(input_message=msg)
 
             else:
                 self._print_message("Wrong argument of the report_error" +
-                        "function. Please send one string as an input parameter!")
+                                    "function. Please send one string as an input parameter!")
             comm.Abort(-1)
 
-    def make_verbose_statement(self,string):
+    def make_verbose_statement(self, string):
         """
         Statement which can be switched off using verbosity parameter.
 
         :param string: stores the message with the description of the statement in the form of str
         :type string: str
         """
-        if self._verbosity==2:
+        if self._verbosity == 2:
             if isinstance(string, str):
-                msg=string+" (in "+self.__class__.__name__+")"
+                msg = string + " (in " + self.__class__.__name__ + ")"
                 self._print_message(input_message=msg)
             else:
                 self._print_message("Wrong argument of the warning" +
-                       "function. Please send one string as an input parameter!")
+                                    "function. Please send one string as an input parameter!")
 
     def make_statement(self, string):
         """
@@ -69,11 +73,11 @@ class Report(object):
         :type string: str
         """
         if isinstance(string, str):
-            msg=string+" (in "+self.__class__.__name__+")"
+            msg = string + " (in " + self.__class__.__name__ + ")"
             self._print_message(input_message=msg)
         else:
             self._print_message("Wrong argument of the warning" +
-                   "function. Please send one string as an input parameter!")
+                                "function. Please send one string as an input parameter!")
 
 
     def report_warning(self, string):
@@ -83,38 +87,38 @@ class Report(object):
         :param string: stores the message with the description of the warning in the form of str
         :type string: str
         """
-        if self._verbosity==2:
+        if self._verbosity == 2:
             if isinstance(string, str):
-                msg="Warning: "+string+" (in "+self.__class__.__name__+")"
+                msg = "Warning: " + string + " (in " + self.__class__.__name__ + ")"
                 self._print_message(input_message=msg)
             else:
                 self._print_message("Wrong argument of the warning" +
-                       "function. Please send one string as an input parameter!")
+                                    "function. Please send one string as an input parameter!")
 
 
-    def _print_message(self,input_message=None):
+    def _print_message(self, input_message=None):
 
-       """
+        """
 
         :param input_message: Message for the user which will be formatted
         :type input_message: str
 
-       """
+        """
 
-       mpi.report(self._make_message(input_message=input_message))
+        mpi.report(self._make_message(input_message=input_message))
 
 
-    def _make_message(self,input_message=None):
+    def _make_message(self, input_message=None):
 
-        edge_line=self.__class__.edge_line
-        message="\n"+edge_line+"\n"
-        message+=self._make_inner_message(input_message=input_message)
-        message+=edge_line+"\n"
+        edge_line = self.__class__.edge_line
+        message = "\n" + edge_line + "\n"
+        message += self._make_inner_message(input_message=input_message)
+        message += edge_line + "\n"
 
         return message
 
 
-    def _make_inner_message(self,input_message=None):
+    def _make_inner_message(self, input_message=None):
         """
         Prepares message for the user. Removes "\n" from the given message
         and formats it so that it uniformly fills out a frame.
@@ -128,35 +132,37 @@ class Report(object):
         """
 
 
-        if input_message.find(" ENDLINE ")!=-1:
+        if input_message.find(" ENDLINE ") != -1:
             self.report_error("ENDLINE is a special keyword. Please redefine your comment!")
 
-        words=input_message.replace("\n"," ENDLINE ").split()
-        #words=input_message.split()
+        words = input_message.replace("\n", " ENDLINE ").split()
 
-        current_line=""
-        message=""
-        for indx,word in enumerate(words):
+        current_line = ""
+        message = ""
+        for indx, word in enumerate(words):
 
             # in case word is really long, break it into lines so that each line fits into frame
-            if len(word)>self.__class__.line_width:
-                message+=self._break_msg_lines(word)
+            # we finish the current line; the long word always starts from the next line
+            if len(word) > self.__class__.line_width:
+                message += self._make_line(line=current_line)
+                current_line = ""
+                message += self._break_msg_lines(word)
 
-            elif word=="ENDLINE":
-                message+=self._make_line(line=current_line)
-                current_line=""
+            elif word == "ENDLINE":
+                message += self._make_line(line=current_line)
+                current_line = ""
 
             # case of full lines
-            elif (len(current_line)+len(" "+word))<self.__class__.line_width:
-                current_line+=" "+word
+            elif (len(current_line) + len(" " + word)) < self.__class__.line_width:
+                current_line += " " + word
 
             else:
-                message+=self._make_line(line=current_line)
-                current_line=" "+word
+                message += self._make_line(line=current_line)
+                current_line = " " + word
 
             # last line which is not a full line
-            if indx==(len(words)-1):
-                message+=self._make_line(line=current_line)
+            if indx == (len(words) - 1):
+                message += self._make_line(line=current_line)
 
         return message
 
@@ -168,7 +174,7 @@ class Report(object):
         :return: line inside of frame
         :rtype: str
         """
-        return "!"+line+" "*(self.__class__.line_width-len(line))+"!\n"
+        return "!" + line + " " * (self.__class__.line_width - len(line)) + "!\n"
 
     def _break_msg_lines(self, msg=None):
         """
@@ -179,33 +185,38 @@ class Report(object):
         :rtype str
         """
 
-        num_lines=int(len(msg)/float(self.__class__.internal_width)+1.0) # take into account also potential unfilled last line
-        message=""
+        # take into account also potential unfilled last line
+        num_lines = int(len(msg) / float(self.__class__.internal_width) + 1.0)
+        message = ""
 
-        for n in range(num_lines-1): # without the last line, last line a special case
+        for n in range(num_lines - 1):  # without the last line, last line a special case
 
-            message+="! "+msg[n*self.__class__.internal_width:(n+1)*self.__class__.internal_width]+"-"+"!\n"
+            message += "! " + msg[n * self.__class__.internal_width:(n + 1) * self.__class__.internal_width] + \
+                       "-" + "!\n"
 
         # last line of a broken word
-        n=+1
-        message+=self._make_line(line=" "+msg[n*self.__class__.internal_width:(n+1)*self.__class__.internal_width])
+        n = num_lines - 1
+        message += self._make_line(line=" " + msg[n * self.__class__.internal_width:
+                                                  (n + 1) * self.__class__.internal_width])
+        print message
 
         return message
 
+
 class Readh5file(Report):
-     """
-     Groups methods for simple extracting data from the hdf file.
-     Not a standalone class. Class to be inherited by other classes.
-     """
+    """
+    Groups methods for simple extracting data from the hdf file.
+    Not a standalone class. Class to be inherited by other classes.
+    """
 
-     def __init__(self):
-         super(Readh5file, self).__init__()
+    def __init__(self):
+        super(Readh5file, self).__init__()
 
-         # attributes which have to set by inheriting classes
-         self.hdf_file = None
+        # attributes which have to set by inheriting classes
+        self.hdf_file = None
 
 
-     def _read_parameters_from_h5_file(self, subgrp=None, things_to_load=None,just_check=True):
+    def _read_parameters_from_h5_file(self, subgrp=None, things_to_load=None, just_check=True):
         """
         Reads data from subgrp directory in self.hdf_file.
 
@@ -234,8 +245,8 @@ class Readh5file(Report):
                 ar = HDFArchive(self.hdf_file, "a")
                 if subgrp not in ar:
 
-                    self.report_warning(
-                        "%s not found in %s file. %s will be created from scratch. " % (subgrp, self.hdf_file,  self.hdf_file))
+                    self.report_warning("%s not found in %s file. "
+                                        "%s will be created from scratch. " % (subgrp, self.hdf_file, self.hdf_file))
                     found_all = False
 
                 else:
@@ -271,31 +282,31 @@ class Readh5file(Report):
 
 
 class Check(Report):
+    """
+     Checks if parameters have changed.
+    """
 
-    n_inequiv_corr_shells=None
+    _n_inequiv_corr_shells = None
 
     def __init__(self):
-        """
-        *Checks if parameters have changed.*
-
-        """
 
         super(Check, self).__init__()
         self._parameters_changed = False
-        self._verbosity=None
+        self._verbosity = None
 
         # These parameters have to be set to some valid value by inheriting class
         self._parameters_to_check = None
         self._old_parameters = None
 
-        self._what_changed=[] #list with parameters which have changed
-        self._critical_par_changed=False
-        self._critical_par=None
+        self._what_changed = []  # list with parameters which have changed
+        self._critical_par_changed = False
+        self._critical_par = None
 
-        self.n_corr_shells=None
-        self.n_k=None
-        self._n_spin_blocs=None
-        self.n_inequiv_corr_shells=None
+        self.n_corr_shells = None
+        self.n_k = None
+        self._n_spin_blocs = None
+        self.n_inequiv_corr_shells = None
+        self.hdf_file = None
 
 
     def reset_parameters_changed_attr(self):
@@ -322,120 +333,129 @@ class Check(Report):
         """
 
         # checks if both new_par and old_par are  both primitive  or both non-primitive variables
-        if self._check_if_primitive(new_par)!=self._check_if_primitive(old_par):
-            self.report_par_change(item = parameter_name)
+        if self._check_if_primitive(new_par) != self._check_if_primitive(old_par):
+            self.report_par_change(item=parameter_name)
 
         elif isinstance(new_par, list):
             if isinstance(old_par, list):
                 if len(new_par) == len(old_par):
                     for item in range(len(new_par)):
-                        if isinstance(new_par[item],numpy.ndarray):
-                            self._check_if_parameter_changed(parameter_name = parameter_name,
-                                                         new_par = new_par[item],
-                                                         old_par = old_par[item])
+                        if isinstance(new_par[item], numpy.ndarray):
+                            self._check_if_parameter_changed(parameter_name=parameter_name,
+                                                             new_par=new_par[item],
+                                                             old_par=old_par[item])
 
                         elif isinstance(new_par[item], list):
-                            self._check_if_parameter_changed(parameter_name = parameter_name,
-                                                         new_par = new_par[item],
-                                                         old_par = old_par[item])
+                            self._check_if_parameter_changed(parameter_name=parameter_name,
+                                                             new_par=new_par[item],
+                                                             old_par=old_par[item])
 
                         elif isinstance(new_par[item], dict):
-                             self._check_if_parameter_changed(parameter_name = parameter_name,
-                                                         new_par = new_par[item],
-                                                         old_par = old_par[item])
+                            self._check_if_parameter_changed(parameter_name=parameter_name,
+                                                             new_par=new_par[item],
+                                                             old_par=old_par[item])
 
 
                         elif new_par[item] in old_par:
-                            self._check_if_parameter_changed(parameter_name = parameter_name,
-                                                         new_par = new_par[item],
-                                                         old_par = old_par[item])
+                            self._check_if_parameter_changed(parameter_name=parameter_name,
+                                                             new_par=new_par[item],
+                                                             old_par=old_par[item])
                         else:
-                            self.report_par_change(item = parameter_name)
+                            self.report_par_change(item=parameter_name)
                             break
 
                 else:
 
-                    self.report_par_change(item = parameter_name)
+                    self.report_par_change(item=parameter_name)
 
             else:
 
-                self.report_par_change(item = parameter_name)
+                self.report_par_change(item=parameter_name)
 
         elif isinstance(new_par, dict):
             if isinstance(old_par, dict):
                 if len(new_par) == len(old_par):
                     for item in new_par:
-                        if isinstance(item,numpy.ndarray):
-                            self._check_if_parameter_changed(parameter_name = parameter_name,
-                                                             new_par = new_par[item],
-                                                             old_par = old_par[item])
+                        if isinstance(item, numpy.ndarray):
+                            self._check_if_parameter_changed(parameter_name=parameter_name,
+                                                             new_par=new_par[item],
+                                                             old_par=old_par[item])
 
                         elif isinstance(new_par[item], list):
-                            self._check_if_parameter_changed(parameter_name = parameter_name,
-                                                         new_par = new_par[item],
-                                                         old_par = old_par[item])
+                            self._check_if_parameter_changed(parameter_name=parameter_name,
+                                                             new_par=new_par[item],
+                                                             old_par=old_par[item])
 
                         elif isinstance(new_par[item], dict):
-                             self._check_if_parameter_changed(parameter_name = parameter_name,
-                                                         new_par = new_par[item],
-                                                         old_par = old_par[item])
+                            self._check_if_parameter_changed(parameter_name=parameter_name,
+                                                             new_par=new_par[item],
+                                                             old_par=old_par[item])
 
                         elif item in old_par:
-                            self._check_if_parameter_changed(parameter_name = parameter_name,
-                                                             new_par = new_par[item],
-                                                             old_par = old_par[item])
+                            self._check_if_parameter_changed(parameter_name=parameter_name,
+                                                             new_par=new_par[item],
+                                                             old_par=old_par[item])
                         else:
-                            self.report_par_change(item = parameter_name)
+                            self.report_par_change(item=parameter_name)
                             break
                 else:
-                    self.report_par_change(item = parameter_name)
+                    self.report_par_change(item=parameter_name)
 
             else:
 
-                self.report_par_change(item = parameter_name)
+                self.report_par_change(item=parameter_name)
 
         elif isinstance(new_par, numpy.ndarray):
             if isinstance(old_par, numpy.ndarray):
-                if not ( new_par.shape==old_par.shape and numpy.allclose(new_par, old_par)):
+                if not (new_par.shape == old_par.shape and numpy.allclose(new_par, old_par)):
 
-                    self.report_par_change(item = parameter_name)
+                    self.report_par_change(item=parameter_name)
 
             else:
-                self.report_par_change(item = parameter_name)
+                self.report_par_change(item=parameter_name)
 
 
         elif self._check_if_primitive(old_par):
-            if new_par != old_par: self.report_par_change(item = parameter_name)
+            if new_par != old_par:
+                self.report_par_change(item=parameter_name)
 
         else:
-            self.report_error("Unsupported check (%s)!"%parameter_name)
+            self.report_error("Unsupported check (%s)!" % parameter_name)
 
 
-    def _check_if_primitive(self, par = None):
+    def _check_if_primitive(self, par=None):
         """
         Checks if parameter is a list, dict, 'None' or  numpy._ndarray
         :param par:  Parameter to check
         :return: False if par is a list, dict, 'None' or  numpy._ndarray otherwise True
         :rtype: boolean
         """
-        return not ( isinstance(par, numpy.ndarray) or
-                     isinstance(par, list) or
-                     isinstance(par, dict) or
-                     par=="None")
+        return not (isinstance(par, numpy.ndarray) or
+                    isinstance(par, list) or
+                    isinstance(par, dict) or
+                    par == "None")
 
 
     @property
     def parameters_changed(self):
+        """
+        :return: True if parameters changed otherwise False
+        :rtype: bool
+        """
 
         return self._parameters_changed
 
 
     @parameters_changed.setter
-    def parameters_changed(self,val):
+    def parameters_changed(self, val):
+        """
+        Prevents user to set directly value of parameters_changed field
+        :param val: potential new value
+        """
         self.report_error("Attribute parameters_changed cannot be changed by user!")
 
 
-    def check_parameters_changed(self, dictionary=None,hdf_dir=None):
+    def check_parameters_changed(self, dictionary=None, hdf_dir=None):
         """
         Checks if parameters in sumk_dft have changed
 
@@ -448,7 +468,7 @@ class Check(Report):
         :type hdf_dir: str
         """
 
-        if dictionary is None or not isinstance(dictionary,dict):
+        if dictionary is None or not isinstance(dictionary, dict):
             self.report_error("Define dictionary with data to compare")
 
         # function check_if_parameters_changed from Check class which was inherited by Wannier2TRIQS
@@ -462,22 +482,24 @@ class Check(Report):
             for item in self._what_changed:
                 if item in self._critical_par:
                     self.make_statement("Critical parameter %s has changed since the "
-                                        "last run. Please correct your input file!"%item)
+                                        "last run. Please correct your input file!" % item)
                 else:
-                    self.make_statement("Noncritical parameter %s has changed since the "%item+
+                    self.make_statement("Noncritical parameter %s has changed since the " % item +
                                         "last run.")
 
-            if self._critical_par_changed:  self.report_error("Invalid input data program aborted. Please correct input and rerun.")
+            if self._critical_par_changed:
+                self.report_error("Invalid input data program aborted. Please correct input and rerun.")
 
             self._update_par_hdf(name=hdf_dir,
                                  dictionary=dictionary)
 
 
-    def _update_par_hdf(self,name=None,dictionary=None):
+    def _update_par_hdf(self, name=None, dictionary=None):
         """
             Updates data in  hdf file.
 
-            :param name: Name of the folder in hdf file where data will be updated, expects name from the main "directory"
+            :param name: Name of the folder in hdf file where data will be updated,
+                         expects name from the main "directory"
             :type name: str
 
             :param dictionary:  dictionary with crucial data to update
@@ -485,17 +507,18 @@ class Check(Report):
 
         """
         if mpi.is_master_node():
-            try :
+            try:
                 ar = HDFArchive(self.hdf_file, "a")
-                if not name in ar: ar.create_group(name)
+                if name not in ar:
+                    ar.create_group(name)
                 ar[name].update(dictionary)
 
                 del ar
             except IOError:
-                self.report_error("Appending to file "+self._filename + ".h5 failed!")
+                self.report_error("Appending to file " + self._filename + ".h5 failed!")
 
 
-    def _parameters_changed_core(self, items_to_check=None,dictionary=None, hdf_dir=None):
+    def _parameters_changed_core(self, items_to_check=None, dictionary=None, hdf_dir=None):
         """
 
         Checks if parameters have changed -- core function.
@@ -517,19 +540,20 @@ class Check(Report):
         :return: True if parameters have changed, False otherwise
         :rtype: boolean
         """
-        self._parameters_to_check=dictionary
+        self._parameters_to_check = dictionary
         if mpi.is_master_node():
             try:
                 ar = HDFArchive(self.hdf_file, "a")
                 if hdf_dir in ar:
-                    old_parameters={}
+                    old_parameters = {}
                     for item in items_to_check:
                         if item in ar[hdf_dir]:
                             old_parameters[item] = ar[hdf_dir][item]
                         else:
                             self._parameters_changed = True
                             self.report_warning("Keyword %s not found in hdf file. New input "
-                                                "parameter will be used in the calculation (update of software?)."%item)
+                                                "parameter will be used in the calculation "
+                                                "(update of software?)." % item)
                             del ar
                             return self._parameters_changed
                     self._old_parameters = old_parameters
@@ -554,7 +578,7 @@ class Check(Report):
 
                 self.report_error("Data from  file " + self._filename + ".h5 couldn't be read!")
 
-        self._parameters_changed=mpi.bcast(self._parameters_changed)
+        self._parameters_changed = mpi.bcast(self._parameters_changed)
 
         return self._parameters_changed
 
@@ -571,15 +595,15 @@ class Check(Report):
                 if par[item] == "None":
                     par[item] = None
                 elif (isinstance(par[item], list) or
-                              isinstance(par[item], dict)):
+                      isinstance(par[item], dict)):
                     self._convert_str_to_None(par[item])
 
         elif isinstance(par, dict):
             for item in par:
                 if par[item] == "None":
                     par[item] = None
-                elif (    isinstance(par[item], list) or
-                              isinstance(par[item], dict)):
+                elif (isinstance(par[item], list) or
+                      isinstance(par[item], dict)):
                     self._convert_str_to_None(par[item])
 
 
@@ -594,16 +618,16 @@ class Check(Report):
             for item in range(len(par)):
                 if par[item] is None:
                     par[item] = "None"
-                elif (    isinstance(par[item], list) or
-                              isinstance(par[item], dict)):
+                elif (isinstance(par[item], list) or
+                      isinstance(par[item], dict)):
                     self._convert_None_to_str(par[item])
 
         elif isinstance(par, dict):
             for item in par:
                 if par[item] is None:
                     par[item] = "None"
-                elif (    isinstance(par[item], list) or
-                              isinstance(par[item], dict)):
+                elif (isinstance(par[item], list) or
+                      isinstance(par[item], dict)):
                     self._convert_None_to_str(par[item])
 
 
@@ -617,22 +641,23 @@ class Check(Report):
 
         """
 
-        if isinstance(item,str):
-            self.report_warning("Previously parameter "+item+
-                            " was set to %s. Now it is %s."
-                            % (self._old_parameters[item], self._parameters_to_check[item]))
+        if isinstance(item, str):
+            self.report_warning("Previously parameter " + item +
+                                " was set to %s. Now it is %s."
+                                % (self._old_parameters[item], self._parameters_to_check[item]))
         else:
             self.report_warning("Previously parameter %s"
-                            " was set to %s. Now it is %s."
-                            % (item, self._old_parameters[item], self._parameters_to_check[item]))
+                                " was set to %s. Now it is %s."
+                                % (item, self._old_parameters[item], self._parameters_to_check[item]))
 
 
         self._parameters_changed = True
-        if item in self._critical_par: self._critical_par_changed=True
+        if item in self._critical_par:
+            self._critical_par_changed = True
         self._what_changed.append(item)
 
 
-    def check_n_corr(self,n_corr=None):
+    def check_n_corr(self, n_corr=None):
         """
         Checks whether number of correlated shell is valid.
         :param n_corr: number of correlated shell
@@ -642,7 +667,7 @@ class Check(Report):
         :rtype: boolean
         """
         return (isinstance(n_corr, int) and
-              0 <= n_corr < self.n_corr_shells)
+                0 <= n_corr < self.n_corr_shells)
 
 
     def check_shell(self, x=None, t=None):
@@ -662,20 +687,32 @@ class Check(Report):
 
         """
 
-        return isinstance(x, dict) and  \
-               isinstance(t, list) and \
-               all([isinstance(key,str) for key in t ]) and \
-               sorted(t)==sorted(x.keys()) \
-               and all([isinstance(x[key],int) for key in x])\
-               and x["dim"]<=(x["l"]*2+1)
+        return (isinstance(x, dict) and
+                isinstance(t, list) and
+                all([isinstance(key, str) for key in t]) and
+                sorted(t) == sorted(x.keys()) and
+                all([isinstance(x[key], int) for key in x]) and
+                x["dim"] <= (x["l"] * 2 + 1))
 
 
-    def check_n_k(self,n_k=None):
-        return 0<n_k<self.n_k
+    def check_n_k(self, n_k=None):
+        """
+
+        :param n_k: index of k-point to check
+        :type: int
+        :return: True if index is valid otherwise False
+        """
+        return 0 < n_k < self.n_k
 
 
-    def check_n_spin_bloc(self,n_spin_bloc=None):
-        return 0<=n_spin_bloc<self._n_spin_blocs
+    def check_n_spin_bloc(self, n_spin_bloc=None):
+        """
+
+        :param n_spin_bloc: spin block to check
+        :type: int
+        :return: True if spin block in the valid range otherwise False
+        """
+        return 0 <= n_spin_bloc < self._n_spin_blocs
 
 
     def check_inequivalent_corr(self, n_corr=None):
@@ -690,14 +727,14 @@ class Check(Report):
         :rtype: boolean
         """
         
-        if not self.n_inequiv_corr_shells is None:
+        if self.n_inequiv_corr_shells is not None:
 
-            return  (isinstance(n_corr, int) and
-                     0 <= n_corr < self.n_inequiv_corr_shells)
-        elif not self.__class__._n_inequiv_corr_shells is None:
+            return (isinstance(n_corr, int) and
+                    0 <= n_corr < self.n_inequiv_corr_shells)
+        elif self.__class__._n_inequiv_corr_shells is not None:
 
-            return  (isinstance(n_corr, int) and
-                     0 <= n_corr < self.__class__._n_inequiv_corr_shells)
+            return (isinstance(n_corr, int) and
+                    0 <= n_corr < self.__class__._n_inequiv_corr_shells)
         else:
             self.report_error("Can't check if valid inequivalent shell!")
 
@@ -711,9 +748,10 @@ class Save(Report):
         super(Save, self).__init__()
         self._filename = None
         self._parameters_changed = None
+        self.hdf_file = None
 
 
-    def _save_par_hdf(self,name=None,dictionary=None):
+    def _save_par_hdf(self, name=None, dictionary=None):
         """
         Saves data to hdf file.
 
@@ -728,28 +766,29 @@ class Save(Report):
         """
         if mpi.is_master_node:
 
-             try:
+            try:
 
                 ar = HDFArchive(self.hdf_file, "a")
 
 
                 if not (name in ar):
 
-                    self.report_warning("""Directory %s not found. Calculations from scratch."""%name)
+                    self.report_warning("""Directory %s not found. Calculations from scratch.""" % name)
                     ar.create_group(name)
 
 
 
                 for it in dictionary:
                     if it in ar[name]and not self._parameters_changed:
-                        self.report_warning("Element "+it+" found in %s folder. Its previous content will be overwritten."%name)
+                        self.report_warning("Element " + it +
+                                            " found in %s folder. Its previous content will be overwritten." % name)
                     ar[name][it] = dictionary[it]
 
                 del ar
 
-             except IOError:
+            except IOError:
 
-                self.report_error("Appending "+ self._filename + ".h5 file failed!")
+                self.report_error("Appending " + self._filename + ".h5 file failed!")
 
 
 class Bracket(Report):
@@ -789,7 +828,7 @@ class Bracket(Report):
 
     def find_parenthesis(self):
         """Looks for paired brackets"""
-        if not self.brackets is None:
+        if self.brackets is not None:
             ind_brackets_to_remove = []  # stores indexes with brackets to remove in ascending order but paired
             ind = 0
             brackets = list(self.brackets)

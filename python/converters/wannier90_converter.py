@@ -1,6 +1,8 @@
+"""
+Wannier converter -- main file.
+"""
 import numpy
 import math
-import cStringIO
 from os.path import isfile
 from copy import deepcopy
 
@@ -1324,7 +1326,7 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
             for ish in range(self.n_shells):
                  old_sort_found=False
                  n_orb=self.shells[ish]["dim"]
-                 temp_eig = numpy.linalg.eigvalsh(ham_r[total_orb:total_orb+n_orb,total_orb:total_orb+n_orb])
+                 temp_eig = numpy.linalg.eigvalsh(ham_r[total_orb:total_orb+n_orb, total_orb:total_orb+n_orb])
                  t1=temp_eig.argsort()
                  for sort_item in all_sorts:
                     if cmp(temp_eig.shape, all_sorts[sort_item].shape)==0 and  self._num_zero> numpy.min(numpy.abs(temp_eig[t1]-
@@ -2485,7 +2487,7 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
 
 
     @U_matrix.setter
-    def U_matrix(self,value=None):
+    def U_matrix(self, value=None):
         self.report_error("Value of U_matrix cannot be overwritten!")
 
 
