@@ -42,7 +42,7 @@ class Report(object):
                 msg = ("Error: " + string + "\n" + "(file: %s" % frame_info.filename +
                                                    ", line: %s" % frame_info.lineno +
                                                    ", in function: " + frame_info.function +
-                                                   " (in " + self.__class__.__name__ + ")")
+                                                   "\n(in " + self.__class__.__name__ + ")")
                 self._print_message(input_message=msg)
 
             else:
@@ -59,7 +59,7 @@ class Report(object):
         """
         if self._verbosity == 2:
             if isinstance(string, str):
-                msg = string + " (in " + self.__class__.__name__ + ")"
+                msg = string + "\n(in " + self.__class__.__name__ + ")"
                 self._print_message(input_message=msg)
             else:
                 self._print_message("Wrong argument of the warning" +
@@ -73,7 +73,7 @@ class Report(object):
         :type string: str
         """
         if isinstance(string, str):
-            msg = string + " (in " + self.__class__.__name__ + ")"
+            msg = string + "\n(in " + self.__class__.__name__ + ")"
             self._print_message(input_message=msg)
         else:
             self._print_message("Wrong argument of the warning" +
@@ -89,7 +89,7 @@ class Report(object):
         """
         if self._verbosity == 2:
             if isinstance(string, str):
-                msg = "Warning: " + string + " (in " + self.__class__.__name__ + ")"
+                msg = "Warning: " + string + "\n(in " + self.__class__.__name__ + ")"
                 self._print_message(input_message=msg)
             else:
                 self._print_message("Wrong argument of the warning" +
@@ -285,9 +285,6 @@ class Check(Report):
     """
      Checks if parameters have changed.
     """
-
-    _n_inequiv_corr_shells = None
-
     def __init__(self):
 
         super(Check, self).__init__()
@@ -419,8 +416,29 @@ class Check(Report):
             if new_par != old_par:
                 self.report_par_change(item=parameter_name)
 
+        elif old_par == "None" and self._check_if_none_val(par=new_par):
+            # this is a special case
+            # input parameters (new_par) can be None or 'None'
+            # the previous parameter (old_par) can  be 'None' but not None (we can't write None to hdf file)
+            # in case the following condition : old_par == "None" and self._check_if_none_val(par=new_par)
+            # is true
+            # it should be treated as parameters haven't changed, so the function should just return
+            return
+
+
         else:
             self.report_error("Unsupported check (%s)!" % parameter_name)
+
+
+    def _check_if_none_val(self, par=None):
+        """
+        Checks if parameter has None or 'None' value
+        :param par: parameter to check
+
+        :return: True if par is None or 'None' otherwise False
+        """
+
+        return par is None or par == "None"
 
 
     def _check_if_primitive(self, par=None):
@@ -726,17 +744,8 @@ class Check(Report):
         :return: True if num_corr is valid otherwise it is False.
         :rtype: boolean
         """
-        
-        if self.n_inequiv_corr_shells is not None:
 
-            return (isinstance(n_corr, int) and
-                    0 <= n_corr < self.n_inequiv_corr_shells)
-        elif self.__class__._n_inequiv_corr_shells is not None:
-
-            return (isinstance(n_corr, int) and
-                    0 <= n_corr < self.__class__._n_inequiv_corr_shells)
-        else:
-            self.report_error("Can't check if valid inequivalent shell!")
+        return isinstance(n_corr, int) and 0 <= n_corr < self.n_inequiv_corr_shells
 
 
 class Save(Report):
