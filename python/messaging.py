@@ -424,6 +424,16 @@ class Check(Report):
             if new_par != old_par:
                 self.report_par_change(item=parameter_name)
 
+        elif old_par == "None" and self._check_if_none_val(par=new_par):
+            # this is a special case
+            # input parameters (new_par) can be None or 'None'
+            # the previous parameter (old_par) can  be 'None' but not None (we can't write None to hdf file)
+            # in case the following condition : old_par == "None" and self._check_if_none_val(par=new_par)
+            # is true
+            # it should be treated as parameters haven't changed, so the function should just return
+            return
+
+
         else:
             self.report_error("Unsupported check (%s)!" % parameter_name)
 

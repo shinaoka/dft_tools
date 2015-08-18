@@ -40,13 +40,13 @@ class AsciiIO(Check):
                 - Only first occurrence of keyword is considered, once keyword is found,
                     entry in the default_dic dictionary with the same name as keyword will be updated.
 
-                - Possible format is accepted: keyword value
+                - A possible format is accepted: keyword value
                                                  keyword = value.
 
-                - Order of keywords in ASCII file file_to_read is arbitrary.
+                - The order of keywords in ASCII file file_to_read is arbitrary.
 
-                - Value can be defined in few lines, provided criterion
-                    of complete parenthesis is fulfilled. Blocs of ASCII with  keywords must not overlap.
+                - A value can be defined in few lines, provided a criterion
+                    of the complete parenthesis is fulfilled.
 
                 - Few pairs keyword value  can be defined in one line.
 
@@ -63,19 +63,18 @@ class AsciiIO(Check):
                     If a value is a list and a string is an element of such a list then double quotations are necessary
                     key =["value1","value2" ...] key1=[1,34, "val", 44] ...
 
-                - If value is a bool than the following states of such a value are valid:
+                - If the value is a bool than the following states of such a value are valid:
 
                     * true
                     * false
 
                     (please note the lower case of letters in both cases).
 
-                - ! or # mark the beginning of the comment. Comment is ended by the symbol of a new line.
+                - ! or # mark the beginning of the comment. The comment is ended by the symbol of a new line.
 
                 - Keywords which are obligatory have to have None value as a default value in the default_dic.
 
-                - No new keywords will be added to default_dic during the read from file_to_read,
-                    keywords not present as entries in  default_dic will be neglected.
+                - The first repetition of any keyword is signalized by the error message. Program is terminated.
 
 
         :param file_to_read: Text file with valid input parameters to read.
@@ -106,12 +105,13 @@ class AsciiIO(Check):
             brackets_inspector = Bracket()  # checks for brackets and stores values
             keyword = ""
             comment_marker = ["!", "#"]
+            value_width = -1
+            value_over_lines=""
             try:
                 with open(file_to_read, "rb") as input_file:
                     lines = input_file.readlines()
                     input_file.close()
                     for count_line, line in enumerate(lines):
-                        count_words = 0  # we start from the new line
 
                         # remove comments
                         for a in comment_marker:
@@ -120,87 +120,45 @@ class AsciiIO(Check):
                                 line = line[:indx]
 
                         if line.strip():  # ignore blank lines
-
+                            if len(keyword)>0:  value_width += 1
                             words_in_line = line.replace("=", " ").split()
 
-                            # case of value in one line
-                            for value in words_in_line:
-                                # in case we have value with brackets over few lines and
-                                # next keyword after bracket are closed we count  count_words
-                                # one too much so if structure is needed
-                                if count_words > 0 and value not in variable_list_temp:
-                                    count_words -= 1
-                                    continue
-                                # check if a new keyword starts
-                                elif value in variable_list_temp:
-                                    keyword = value
-                                    temp_line_indx = words_in_line.index(value)
+                            # check if valid words over few lines
+                            if value_width > 0:
+                                if not (len(value_over_lines)>0 and
+                                        value_over_lines[0] in brackets_inspector.brackets_patterns.values()):
 
+                                    self.report_error("Every keyword over few lines "
+                                                      "must have a value inside brackets!")
+
+                            for value in words_in_line:
+
+                                # check if a new keyword starts
+                                if value in variable_list_temp:
+                                    keyword = value
+                                    value_width = 0 # defines how many lines occupy a value
                                     if not (brackets_inspector.are_brackets_ended() or
                                             brackets_inspector.show_brackets() is None):
+
                                         self.report_error("Wrong parenthesis  detected in PARAMETERS file. " +
-                                                          "Please correct PARAMETERS file and restart the application ")
+                                                          "Please correct PARAMETERS file and restart the application.")
                                     value_over_lines = ""
-
-                                    for part_of_value in words_in_line[(temp_line_indx + 1):]:
-                                        if part_of_value not in variable_list:
-                                            # loads all brackets to brackets_inspector
-                                            brackets_inspector.add_brackets(re.sub(pattern="[a-zA-Z0-9-0]*",
-                                                                                   repl=" ",
-                                                                                   string=part_of_value
-                                                                                   ).replace(":", "").
-                                                                            replace("'", "").
-                                                                            replace(".", "").
-                                                                            replace(", ", "").
-                                                                            replace("_", "").
-                                                                            replace('"', '').
-                                                                            replace("+", "").
-                                                                            replace("-", "").
-                                                                            replace("*", "").
-                                                                            replace("/", "").
-                                                                            split()
-                                                                           )
-
-                                            # explanation:
-                                            # re sub
-                                            # looks for any letter or number [a-zA-Z0-9-0] and
-                                            # substitutes it by empty space: " ". By adding star to *
-                                            # the pattern we demand that even if no letter or number is
-                                            # found empty space " " will be added between elements of the string
-                                            # count sub function parameter is set to its default value 0
-                                            # which means that all occurrences which match
-                                            # defined pattern will be replaced
-
-                                            # replace command remove rest of the content which is not brackets
-                                            # extend adds brackets in the conserved order to the existing list of
-                                            # brackets
-
-
-                                            brackets_inspector.find_parenthesis()
-                                            count_words += 1
-                                            value_over_lines += part_of_value
-                                        else:
-                                            break  # next keyword
 
                                 # case of redefinition
                                 elif value in variable_list:
-                                    if self._verbosity == 2:
-                                        self.make_statement("Redefinition of keyword " + value +
+
+                                    self.report_error("Redefinition of keyword " + value +
                                                             " in PARAMETERS file at line %s. " % (count_line + 1) +
-                                                            "It will not be taken into account.")
+                                                            "Please correct your PARAMETERS file!")
                                     # first line is marked as 1
 
-                                # case of value over few lines
-                                elif not brackets_inspector.are_brackets_ended():
-                                    temp_line_indx = words_in_line.index(value)
-
-                                    for part_of_value in words_in_line[temp_line_indx:]:
-                                        if part_of_value not in variable_list:
-                                            # loads all brackets to brackets_inspector
-                                            brackets_inspector.add_brackets(
-                                                re.sub(pattern="[a-zA-Z0-9-0]*",
-                                                       repl=" ",
-                                                       string=part_of_value).replace(":", "").
+                                # value to read
+                                else:
+                                    # loads all brackets to brackets_inspector
+                                    brackets_inspector.add_brackets(re.sub(pattern="[a-zA-Z0-9-0]*",
+                                                                                    repl=" ",
+                                                                                    string=value
+                                                                                    ).replace(":", "").
                                                                              replace("'", "").
                                                                              replace(".", "").
                                                                              replace(", ", "").
@@ -213,31 +171,48 @@ class AsciiIO(Check):
                                                                              split()
                                                                             )
 
-                                            brackets_inspector.find_parenthesis()
-                                            count_words += 1
-                                            value_over_lines += part_of_value
-                                        else:
-                                            break  # new keyword
+                                    # explanation:
+                                    # re sub
+                                    # looks for any letter or number [a-zA-Z0-9-0] and
+                                    # substitutes it by empty space: " ". By adding star to *
+                                    # the pattern we demand that even if no letter or number is
+                                    # found empty space " " will be added between elements of the string
+                                    # count sub function parameter is set to its default value 0
+                                    # which means that all occurrences which match
+                                    # defined pattern will be replaced
+                                    #
+                                    # replace command remove rest of the content which is not brackets
+                                    # then adds brackets in the conserved order to the existing list of
+                                    # brackets
+                                    #
 
-                                # check if whole value  was read, all value read when all brackets are paired
+                                    brackets_inspector.find_parenthesis()
+                                    value_over_lines += value
+
+                                # check if the whole value  is read, all value is read when all brackets are paired
                                 if ((brackets_inspector.are_brackets_ended() or
                                      brackets_inspector.show_brackets() is None) and not
-                                     keyword == ""):
+                                     (keyword == "" or len(value_over_lines) == 0)):
 
-                                    # special treatment for the string values, no conversion is needed
+                                    # the special treatment for the string values, no conversion is needed
                                     if keyword in variable_list_string_val:
                                         if len(value_over_lines.split()) == 1:
                                             default_dic[keyword] = value_over_lines
+
                                         # case of value as a standalone string
                                         else:
-                                            default_dic[keyword] = list(value_over_lines.split())
-                                    # case of value which is a list of strings
+                                                default_dic[keyword] = list(value_over_lines.split())
+
+                                    # the case of value which is a list of strings
                                     else:
+
                                         item = string_converter.loads(value_over_lines)
                                         default_dic[keyword] = item
-                                    variable_list_temp.remove(
-                                        keyword)  # only first occurrence of the keyword is taken into account
+
+                                    value_width = 0
+                                    variable_list_temp.remove(keyword)  # only first occurrence of the keyword is taken into account
                                     keyword = ""
+
 
             except IOError:
                 self.report_error("Opening file %s failed!" % file_to_read)
