@@ -37,8 +37,8 @@ class AsciiIO(Check):
         Updates  keywords of default_dic by reading data from file_to_read.
         Short characteristics of input format in file_to_read::
 
-                - Only first occurrence of keyword is considered, once keyword is found,
-                    entry in the default_dic dictionary with the same name as keyword will be updated.
+                - Only the first occurrence of keyword is considered. Once keyword is found,
+                  the entry in the default_dic dictionary with the same name as keyword will be updated.
 
                 - A possible format is accepted: keyword value
                                                  keyword = value.
@@ -59,9 +59,15 @@ class AsciiIO(Check):
                     * key value
                     * key "value"
                     * key 'value'
+                    In order to use the convention above keyword must be included in variable_list_string_val
+                    as an entry in the list.
 
                     If a value is a list and a string is an element of such a list then double quotations are necessary
                     key =["value1","value2" ...] key1=[1,34, "val", 44] ...
+                    The key in that case must not be included  in variable_list_string_val list.
+
+                    Input parameter variable_list_string_val list is only for
+                    keywords which values are in the form of the single string.
 
                 - If the value is a bool than the following states of such a value are valid:
 
@@ -75,6 +81,8 @@ class AsciiIO(Check):
                 - Keywords which are obligatory have to have None value as a default value in the default_dic.
 
                 - The first repetition of any keyword is signalized by the error message. Program is terminated.
+
+                - The first unknown keyword is signalized by the error message. Program is terminated.
 
 
         :param file_to_read: Text file with valid input parameters to read.
@@ -148,9 +156,13 @@ class AsciiIO(Check):
                                 elif value in variable_list:
 
                                     self.report_error("Redefinition of keyword " + value +
-                                                            " in PARAMETERS file at line %s. " % (count_line + 1) +
-                                                            "Please correct your PARAMETERS file!")
-                                    # first line is marked as 1
+                                                      " in PARAMETERS file at line %s. " % (count_line + 1) +
+                                                      "Please correct your PARAMETERS file!") # first line as 1
+
+                                # case of unknown keyword
+                                elif keyword == "":
+
+                                    self.report_error("Unknown keyword: %s at line number %s!"%(value, count_line))
 
                                 # value to read
                                 else:
