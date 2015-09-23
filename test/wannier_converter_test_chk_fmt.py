@@ -62,6 +62,8 @@ converter=Wannier90Converter(filename=input_file)
 # get data from *.win file
 converter._read_win_file()
 
+converter._initialize_U_matrices()
+
 ar = HDFArchive('wannier_converter_test_chk_fmt.output.h5', 'w')
 ar["chk_par"]=converter._read_chkpt_fmt(filename=input_file)  # get data from *.chk_fmt file
 del ar

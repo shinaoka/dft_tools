@@ -1,0 +1,25 @@
+
+# Hypothetical input Wannier file.  
+# Used in benchmark for T order.
+#
+num_wann = 14
+num_bands = 19
+
+begin projections
+f=0.5,0.5,0.5:d # equivalent to f=0.5,0.5,0.5:dz2;dxz;dyz;dx2-y2;dxy  
+f=0.5,0.5,0.0:px
+f=0.5,0.5,0.0:py
+f=0.5,0.5,0.0:pz
+f=0.0,0.5,0.5:px
+f=0.0,0.5,0.5:py
+f=0.0,0.5,0.5:pz
+f=0.5,0.0,0.5:px
+f=0.5,0.0,0.5:py
+f=0.5,0.0,0.5:pz
+end projections
+
+fermi_energy : 12.6037
+
+mp_grid 16 16 16
+
+hr_plot = true

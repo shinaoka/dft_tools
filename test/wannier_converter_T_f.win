@@ -1,0 +1,26 @@
+
+# Hypothetical input Wannier file.  
+# Used in benchmark for T order.
+#
+num_wann = 16
+num_bands = 19
+
+begin projections
+# with this order of projections T should be the same as from spherical_to_cubic (U_matrix.py)
+f=0.5,0.5,0.5:fx(x2-3y2);fz(x2-y2);fxz2;fz3;fyz2;fxyz;fy(3x2-y2) 
+f=0.5,0.5,0.0:px
+f=0.5,0.5,0.0:py
+f=0.5,0.5,0.0:pz
+f=0.0,0.5,0.5:px
+f=0.0,0.5,0.5:py
+f=0.0,0.5,0.5:pz
+f=0.5,0.0,0.5:px
+f=0.5,0.0,0.5:py
+f=0.5,0.0,0.5:pz
+end projections
+
+fermi_energy : 12.6037
+
+mp_grid 16 16 16
+
+hr_plot = true
