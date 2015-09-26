@@ -701,6 +701,8 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
                 self._save_par_hdf(name=self._SumkDFT,
                                    dictionary=self._SumkDFT_data)
 
+            self.make_statement("Data for SumkDFT has been saved to the hdf file.")
+
         else:  # case of rerun
             # warn if input parameters for SumkDFT have changed their values since the last run
 
@@ -742,6 +744,8 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
             # Warn if non-crucial parameters changed
             self.check_parameters_changed(dictionary=not_crucial_par,
                                           hdf_dir=self._SumkDFT)
+
+            self.make_statement("Calculation has been restarted.")
 
         barrier()
 
