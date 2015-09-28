@@ -1,5 +1,5 @@
 """
-Wannier converter -- main file.
+Wannier90Converter -- main file.
 """
 import numpy
 import math
@@ -44,21 +44,21 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
             -  Writes input data for SumkDFT into hdf file
                 (inherited method: method _save_par_hdf)
 
-            -  Writes Wannier90 converter parameters into hdf file
+            -  Writes Wannier90Converter parameters into hdf file
                 (inherited method: method _save_par_hdf)
 
             -  Checks if input parameters for SumkDFT have changed since the last run
 
                 (inherited method: parameters_changed)
 
-            -  Checks if parameters for Wannier90 converter have changed since the last run
+            -  Checks if parameters for Wannier90Converter have changed since the last run
             `
                 (inherited method: parameters_changed)
 
 
         **Input files for the calculation (to change):**
 
-            Number of files needed by converter and their names depend on polarisation scenario:
+            Number of files needed by the converter and their names depend on polarisation scenario:
 
                 -   Non-polarised calculation:
 
@@ -275,7 +275,7 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
         self._R_sym = None  # symmetry operations
 
 
-        # _all states: data structure with all states implemented
+        # _all states: data structure with states implemented
         # in Wannier 90 which are used as an initial guess for MLWFs,
         # each entry is the list with  the following entries:
         #
@@ -291,7 +291,7 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
 
         # labels s,p, etc. for states taken from Wannier90 user guide
         # we want to project on orbitals with pure correlated or non-correlated character,
-        # orbitals like sp3d are not valid for wannier converter
+        # orbitals like sp3d are not valid for Wannier90Converter
 
         self._all_states = [
                             {"l": 0, "mr": 1, "name": "s", "dim": 1},
@@ -341,12 +341,9 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
 
         self._dummy_projections_used = False  # defines whether or not dummy projections are in use
 
-        self._extra_par = {"num_zero": 0.0001, "verbosity": 2}  # default values of additional parameters for wannier
-                                                                # converter. They can be modified by the user in
-                                                                # case additional ASCII file is provided.
-
-
-
+        self._extra_par = {"num_zero": 0.0001, "verbosity": 2}  # default values of additional parameters for
+                                                                # Wannier90Converter. They can be modified
+                                                                # by the user in case additional ASCII file is provided.
 
         # self._filename:       core name of important files: filename_hr.dat,
         #                                                     filename.h5,
@@ -381,9 +378,9 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
         #                     it is 1 for spin non-polarised, spin-orbit calculation
         #                     and 2 for spin-polarised calculation
 
-        self._parameters = {}  # parameters specific for Wannier converter
+        self._parameters = {}  # parameters specific for Wannier90Converter
 
-        # self._SumkDFT:  folder in hdf file where dft input data is stored (both sumkdft and wannier converter)
+        # self._SumkDFT:  folder in hdf file where dft input data is stored (both SumkDFT and Wannier90Converter)
 
         if isinstance(dft_subgrp, str):
             self._SumkDFT = dft_subgrp
@@ -737,7 +734,7 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
             self._critical_par_changed = False
 
             # Stop if crucial input  parameters for sumk dft or 
-            # Wannier converter have changed their values since the last rerun
+            # Wannier90Converter have changed their values since the last rerun
             self.check_parameters_changed(dictionary=dft_data,
                                           hdf_dir=self._SumkDFT)
 
@@ -821,7 +818,7 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
                 self.SO = 0
                 self.SP = 1
 
-            # **** calculate parameters for converter based on parameters from win file
+            # **** calculate parameters for the converter based on parameters from win file
             if not self._user_shells:
                 self._get_shells()
 
@@ -868,7 +865,7 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
                 self.report_error("Numerical zero is wrongly defined!")
 
             if self._verbosity != 2:
-                self.make_statement("No additional output will be printed out from wannier converter module.")
+                self.make_statement("No additional output will be printed out from Wannier90Converter module.")
                 self._verbosity = "None"
 
             if one_channel:
@@ -973,7 +970,7 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
         if "random" in str(lines).lower():
 
                 self.report_error("Random projections detected. Random projections are not "
-                                  "valid for the Wannier converter. Initial projections should be as close"
+                                  "valid for the Wannier90Converter. Initial projections should be as close"
                                   " as possible to the final MLWFs.")
 
         if ("(u" in str(lines) or "(d" in str(lines)) and ")" in str(lines):
@@ -1209,7 +1206,7 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
 
     def _get_total_MLWF(self):
         """
-        Converts number of MLWFs in the form of string from *.win file to wannier converter attribute: total_MLWF.
+        Converts number of MLWFs in the form of string from *.win file to Wannier90Converter attribute: total_MLWF.
         """
 
         try:
@@ -2058,7 +2055,7 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
         """
         Read formatted checkpoint file from wannier90 for one particular spin channel.
         Extracts U matrix.  In case there is a disentanglement extracts also U_matrix_opt and ndimwin
-        (ndimwin is how number of bands are called in Wannier90, in wannier converter
+        (ndimwin is how number of bands are called in Wannier90, in Wannier90Converter
         ndimwin is called n_orbitals in order  to be consistent with names from sumkdft).
 
         :param filename:    Base name of file  with data
@@ -2200,10 +2197,10 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
                                            "  and in  %s.chk.fmt!" % (filename, filename))
 
 
-                    # k points, not used in the converter
+                    # k points, not used by the converter
                     for i in range(chkpt_data["Number of kpoints"]):
                          pos += 1
-                    # nntot, not used in the converter
+                    # nntot, not used by the converter
                     pos += 1
 
                     # num wann
@@ -2357,7 +2354,7 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
                 # convention in Wannier90: O' = U^{\dagger} OU
                 # where O in Bloch basis and O' in MLWFs basis
                 #
-                # convention in wannier converter
+                # convention in Wannier90Converter
                 # O' = U O U ^{\dagger}
                 # where O in Bloch basis and O' in MLWFs basis
                 #
@@ -2518,27 +2515,41 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
 
     def _SumkDFT_par(self):
         """
-        Prepares input parameters for SumkDFT in the form of python dictionary.
+        Prepares input parameters for SumkDFT in the form of Python dictionary.
         **Parameters**::
 
         -  energy_unit (float): the unit of energy used in the calculations,
-           it is fixed to energy_unit=1.0 (assuming eV units)
-        -  n_k (int): number of k-points used in the summation, this is read from Hr file produced by wannier90
-        -  k_dep_projection (int): whether or not dimension of  projection operator depends on the k-point:
+           it is fixed to energy_unit=1.0 (always assuming eV units)
 
-            * 0 dimension of projections do not depend on k-points
+        -  n_k (int): number of k-points used in the summation. This is evaluated from mp_grid keyword
+           which is read from Wannier90 input file (*.win).
 
-            * 1 dimension of projections  depend on k-points
+        -  k_dep_projection (int): whether or not dimension of projection operator depends on the k-point:
 
-            *This parameter is fixed to  k_dep_projection=0 for Wannier90Converter
-             (projections are constructed from rotation  between pseudo-Bloch states and MLWF).
+            * 0 dimension of projection operator  does not depend on k-points,
+
+            * 1 dimension of projection operator  depends on k-points.
+
+            In case of disentanglement for non spin-polarised case or spin-orbit coupling case this parameter
+            is set to 1 otherwise it is set to 0.
+
+            In case of spin-polarised calculation if there is disentanglement
+            for any spin channel this parameter is set to 1 otherwise it is set to 0.
+
 
         - SP (int):	defines whether we have spin-polarised or spin-less calculation. \n
                 Possible values:
 
-                * SP=0 spin-less calculations
+                * SP=0 spin-less calculations,
 
-                * SP=1 spin-polarised calculation
+                * SP=1 spin-polarised calculation.
+
+                In case seedname_up.win and seedname_down.win files are found in
+                the working directory this parameter is set to 1.
+
+                In case spinors keyword is found in seedname.win this parameter is set to 1.
+
+                Otherwise this parameter is set to 0 and spinless calculation is assumed.
 
         - SO (int): defines whether or not we have spin-orbit calculations.\n
             Possible values are:
@@ -2547,22 +2558,34 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
 
                 * SO=1   spin-orbit calculations
 
+                In case a keyword spinors = true  or  spinors = t (value of the keyword is case independent)
+                found in seedname.win  SO = 1 otherwise it is 0.
+
         - charge_below (float): the number of electrons in the unit cell below
-          energy window, *it is set to 0 in Wannier converter*
+          energy window, *it is set to 0 in Wannier90Converter*
 
-        - density_required (float): required electron density, used in
-          search for the chemical potential. This is the total number
-          of electrons described in Hamiltonian expressed in MLWF basis
-          (correlated and non-correlated electrons).
+        - density_required (float):
 
-        - symm_op (int): defines if symmetry operation are used fot the BZ sums\n. Possible values are:
+                Used in the search for the chemical potential.
 
-                 *   symm_op=0 all k-points explicitly included in calculations
+                This is the total number of electrons described in the Hamiltonian expressed in MLWF basis
+                (correlated and non-correlated electrons).
+
+                This parameter is calculated using fermi_energy keyword from
+                case.win file and H_k. For each k-point H_k is diagonalized and states which are
+                below Fermi level are counted. The counter divided by
+                the number of k-points gives a required density.
+
+        - symm_op (int): defines if symmetry operations are used for the BZ sums\n.
+
+                 Possible values are:
+
+                 *   symm_op=0 all k-points explicitly included in calculations,
 
                  *   symm_op=1 symmetry inequivalent points used, and rest k-points
-                     reproduced by means of the symmetry operations
+                     reproduced by means of the symmetry operations.
 
-          *This parameter is fixed to  symm_op=0 for Wannier90Converter (No symmetry groups for the k-sum)*.
+                 This parameter is fixed to  symm_op=0 for Wannier90Converter (No symmetry groups for the k-sum).
 
         - n_shells (int): number of all sites in the unit cell
 
@@ -2576,6 +2599,29 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
              * l: angular momentum quantum number
 
              * dim: number of orbitals for the particular shell
+
+             A brief description of shells determination (in two steps):
+
+                    Step 1
+                For each shell index, l, and dim are evaluated basing on the information from case.win file.
+                All three attributes are determined from the definition of initial projections. Here the assumption is
+                made that initial projections are chosen reasonably. For example if final MLWFs have d-like
+                shape d atomic orbitals should be defined as initial projections. If for example for some reason
+                a user would define p-like initial projections and obtain d-like MLWFs than Wannier90Converter may
+                produce wrong input data for SumkDFT.
+
+                    Step 2
+                Next, sort is calculated. It is evaluated from  H_R. An array of H_R for R=0 (ham_r parameter) is used
+                in the construction. Since the dimension of each shell is known from the previous step for every shell a
+                sub-block of the array which corresponds to that shell can be determined. The order of initial
+                projections from case.win file maps onto the order of sub-blocks in the array. Each of such a sub-block
+                is diagonalized and eigenvalues of sub-blocks are compared (eigenvalues are sorted before a comparison).
+                If a sub-block has the same eigenvalues as the previously examined n-th sub-block then it has the same
+                sort as the n-th shell to which this n-th sub-block corresponds. In case eigenvalues of the currently
+                examined sub-block are different from  eigenvalues of all so far examined sub-blocks then a shell which
+                corresponds to this sub-block has a new unique sort. This procedure is continued until all shells have
+                their sort parameter set.
+
 
         - n_corr_shells (int): number of all correlated sites in the unit cell
 
@@ -2593,7 +2639,27 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
 
              * SO: spin-orbit coupling, if it is enabled it is 1 otherwise it is 0
 
-             * irep: dummy parameter set to 0
+              In case a keyword spinors = true  or  spinors = t (value of keyword is case independent)
+              found in seedname.win  SO = 1 otherwise it is 0.
+
+
+             * irep: dummy parameter is set to 0
+
+
+              Two scenarios can be possible.
+
+                User-defined correlated shells:
+                  In this scenario user sends his/her correlated shells to
+                  Wannier90Converter as an input parameter of  convert_dft_input method.  In that case correlated
+                  shells are the same as shells (they are the same apart from attributes SO and irep). This feature
+                  is provided in case a user needs to treat shells usually considered as non correlated as correlated.
+                  This feature can be used if for example a user wants to treat p orbitals as correlated orbitals.
+
+                Correlated shells evaluated from shells:
+                  In this scenario shells (after sort attribute is evaluated) are examined.
+                  All those shells for which l geq 2  are used to build corr_shells. For all correlated shells
+                  parameter irep is set to 0. If spinors keyword was found in input win file then for each correlated
+                  shell SO attribute is set to 1 otherwise attribute SO is set to 0.
 
         - use_rotations (int): if local of global coordinates are used,
           *This parameter is fixed to use_rotation=1 for Wannier90Converter*
@@ -2601,42 +2667,97 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
         - rot_mat (numpy.array.complex): if use_rotation=1, then this contains a list of the rotation matrices.
           *This parameter is enabled for Wannier90Converter*
 
+          In order to find rotation matrices H_R for R=0 (ham_r parameter) is examined. Sub-blocks which correspond
+          to correlated shells are diagonalized and their eigenvectors are used to produce rotation matrices
+          between inequivalent correlated shells and shells related to them by symmetry.
+
         - rot_mat_time_inv (list of int): this is used only if  use_rotations=1
           *This parameter is disabled for Wannier90Converter*
+
+          This parameter is fixed to 0 in Wannier90Converter for all shells.
 
         - n_reps (int): Number of irreducible representations of the correlated shells,
             for example for t2g/eg splitting it wil be 2
             *This parameter is not used  by  Wannier90Converter*
 
+            This parameter is set to -1.
+
         - dim_reps (list of int): Dimension of representation (for example for t2g/eg [2,3])
           *This parameter is not used  by  Wannier90Converter*
 
-        - T (list of numpy.array.complex): Each element in the list correspond
-        to the particular inequivalent correlated shell. Each element in the list is a transformation matrix
-        from the spherical harmonics to MLWF basis
+          This parameter is set to -1.
+
+        - T (list of numpy.array.complex):
+
+           Each element in the list corresponds
+           to the particular inequivalent correlated shell. Each element in the list is a transformation matrix
+           from the spherical harmonics to MLWF basis
+
+           T matrix is evaluated basing on the information about initial projections from case.win file.
+           The exact form of the T matrix is determined by the order of initial projection from case.win file.
+
+           In case of spin-orbit coupling scenario T matrix is constructed according to  "non-mixing" base scenario.
+
+           In case a number of orbitals for a shell is smaller than the maximal number of orbitals for that shell a
+           generic T matrix is produced using spherical_to_cubic method (in that case content of the matrix
+           does not depend on the order of the initial projections).
 
         -n_orbitals(numpy.array.int, dimension n_k, SP+1-SO,n_corr_shells,max(corr_shell dimension)):
-         total number of orbitals for each k-point. It is k-independent in Wannier converter, it has
-         a form of vector whose each element is equal to total number of states included in
-         Hamiltonian expressed in MLWF.
+         total number of orbitals for each k-point.
+
+           A brief description of n_orbitals determination:
+
+            In case there is no need for the disentanglement procedure during the construction of MLWFs each entry in
+            n_orbitals is equal to the total number of MLWFs (keyword num_wann from case.win file).
+
+            In case of the disentanglement procedure during the construction of MLWFs content of
+            n_orbitals is read from the formatted checkpoint file (case.chk.fmt).
 
         -proj_mat(numpy.array.complex, dimension [n_k, SP+1-SO,n_corr_shells,max(corr_shell dimension)]):
          U matrix which transforms pseudo-Bloch states to correlated MLWF.
 
+           A brief description of proj_mat determination:
+
+             In case formatted checkpoint file: case.chk.fmt is provided proj_mat are constructed from
+             U matrices which are read from it.
+
+             In case formatted checkpoint is not found "dummy" projections are built.
+
+             In case there are non-correlated shells in the Hamiltonian (number of shells larger than the number
+             of correlated shells) case.chk.fmt is neglected and "dummy" projections are built.
+
         -bz_weights (numpy.array.float): one dimensional array which
         contains weights of the k-points for the summation.
-        Since no symmetry of BZ is used all elements of this
-        list have the same value: 1/n_k
+
+           Since no symmetry of FBZ is used all elements of this
+           list have the same value: 1/n_k.
 
         -hopping(numpy.array.complex, dimension [n_k, SP+1-SO, Max(n_orbitals), Max(n_orbitals)]):
         non-interacting H_k at each k-point.
+
+            A brief description of hopping determination:
+
+               In case formatted checkpoint is used to built projections hopping is
+               constructed from rotation of H_k with projections as rotating matrices.
+
+               In case projections are "dummy" projections H_k becomes the hopping array.
+
         """
 
         bz_weights = numpy.ones(self.n_k, numpy.float_) / float(self.n_k)
 
+
+        if any(self._disentanglement_spin[indx] for indx in range(self._n_spin)):
+            k_dep_projection = 1
+        else:
+            k_dep_projection = 0
+
+
+
+
         self._SumkDFT_data = {"energy_unit": 1.0,
                               "n_k": self.n_k,
-                              "k_dep_projection": 0,
+                              "k_dep_projection": k_dep_projection,
                               "SP": self.SP,
                               "SO": self.SO,
                               "charge_below": 0,
