@@ -1,0 +1,18 @@
+
+# Hypothetical input file with extra parameters for Wannier90Converter  
+
+# if verbosity is 2 then warning massages are printed
+verbosity  = 1 ! default value is also 2,
+# if the user value of verbosity is different than 2 this attribute will be set to "None" in Wannier90Converter
+
+# num_zero = 0.1 (this is in the comment section )
+ 
+num_zero = 0.001 ! default value  is 0.0001 in same cases it should be increased 
+
+
+! non_standard_corr_shells  should be set to true  if shells like p, s usually considered non correlated should be
+#  treated as correlated
+# Please notice the case letter. Here is true not True like it would be in Python.
+non_standard_corr_shells = true
+! This is because it is read using json module. Java notation for boolean variables has to be used here.
+

@@ -1,12 +1,12 @@
 
 # Test for reading projections from *.win file
 
-# Tough example of projections, it 
+# Tough example of projections. It
 # is very unrealistic but combines different 
 # conventions for defining projections and
-# is valuable for benchmarks
-! test is also done if all formats of comments are treated 
-! properly (everything after ! or # should be neglected )
+# is valuable for benchmarks.
+! Test is also done if all formats of comments are treated
+! properly. Everything after ! or # should be neglected.
 
 
 begin projections
@@ -27,6 +27,7 @@ f=0.25,0.25,0.25:s
 Cu1:dx2-Y2:z=0,0,1 ! bum
 f=-0.25,-0.25,-0.25:s # bum bum bum
 Fe:s;p;d
+Fe1:s;p; dz2;dxz;dyz;dx2-y2;dxy
 O:p
 O1:px;py;pz
 CU1:dxz:z=0,0,1

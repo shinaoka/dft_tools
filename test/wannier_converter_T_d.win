@@ -2,6 +2,14 @@
 # Hypothetical input Wannier file.  
 # Used in benchmark for T order.
 #
+
+begin unit_cell_cart
+Bohr
+7.2605 0.000 0.000
+0.000 7.2605 0.000
+0.000 0.000 7.2605
+end unit_cell_cart
+
 num_wann = 14
 num_bands = 19
 

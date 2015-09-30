@@ -10,16 +10,19 @@ import subprocess
 
 
 """
-Benchmark for SrVO3 using wannier converter. A full template  for DMFT calculations is provided.
-This template can  very easily be updated for any system which has one inequivalent correlated shell (for example LaTiO3):
-valid input files should be provided and keyword 'dft_filename' should be adjusted
+Benchmark for SrVO3 using Wannier90Converter. A full template  for DMFT calculations is provided.
+This template can  very easily be updated for any system which has one inequivalent correlated shell
+(for example LaTiO3):
 
-Of course other parameters like U,J etc. should be set to the reasonable values which depend on the case in interest.
+valid input files should be provided and keyword 'dft_filename' should be adjusted.
+
+Of course other parameters like U, J etc. should be set to the reasonable values which depend on the case in interest.
 
 
-Input files: wannier_converter_SrVO3.win, wannier_converter_SrVO3_hr.dat, wannier_converter_SrVO3.chk.fmt, wannier_converter_dft_dmft_cthyb.py
+Input files: wannier_converter_SrVO3.win, wannier_converter_SrVO3_hr.dat, wannier_converter_SrVO3.chk.fmt,
+             wannier_converter_dft_dmft_cthyb.py
 
-Outputfiles: dftdmft.h5, wannier_converter_SrVO3.h5
+Output files: dftdmft.h5, wannier_converter_SrVO3.h5
 
 Command: pytriqs wannier_converter_dft_dmft_cthyb.py
 
@@ -29,7 +32,7 @@ This template is the slightly modified version of dft_dmft_cthyb.py from core Su
 
 # input parameters
 
-dft_filename='wannier_converter_SrVO3'
+dft_filename = 'wannier_converter_SrVO3'
 U = 4.0
 J = 0.65
 beta = 10
