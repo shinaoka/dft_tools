@@ -2256,16 +2256,16 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
         In case correlated and non correlated MLWFs in the system dummy projections will be built.
         Projections from Bloch to correlated space are built otherwise.
 
-        Produces projections required by SumkDFT, in case *.chk.fmt file(s) is/are present,
+        Produces projections required by SumkDFT, in case *.chk.fmt file(s) is/are present.
         Dummy projections in the form of identity matrices are produced otherwise.
 
         Projections are produced for all correlated shells, also those which are symmetry equivalent.
-        projections have a form of rotation from Bloch space to the correlated subspace.
+        Projections have a form of rotation from Bloch space to the correlated subspace.
 
         """
 
         # If number of shells is larger than number of correlated shells  then seedname*.chk
-        # is neglected and dummy projections are always built
+        # is neglected and dummy projections are always built.
 
         if len(self.shells) > len(self.corr_shells):
             if self._n_spin == 1:
