@@ -374,7 +374,7 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
 
         self._u_matrix_opt = None  # transformation form Bloch to pseudo-Bloch smooth states
 
-        self._non_standard_corr_shells = None # stores user provided correlated shells if such exist
+        self._non_standard_corr_shells = None  # stores user provided correlated shells if such exist
 
         self._verbosity = None  # defines level of output verbosity
 
@@ -387,7 +387,7 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
                          "hr_plot": None,
                          "spinors": "false",
                          "projections": None,
-                         # unit_cell_cart keyword is to check compatibility between checkpoint file and wine file
+                         # unit_cell_cart keyword is to check compatibility between checkpoint file and win file
                          "unit_cell_cart": None,
                          "num_wann": None,
                          "num_bands": -1}
@@ -2030,8 +2030,8 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
                     pos += 1
 
                     # num_kpts
+                    pos += 1
                     try:
-                        pos += 1
                         chkpt_data["Number of kpoints"] = int(lines[pos])
                     except ValueError:
                         self.report_warning("Invalid number of kpoints in %s.chk.fmt!" % filename + err_msg)
@@ -2079,8 +2079,8 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
                     pos += 1
 
                     # num wann
+                    pos += 1
                     try:
-                        pos += 1
                         chkpt_data["Number of Wannier orbitals"] = int(lines[pos])
                     except ValueError:
                         self.report_warning("Invalid number of Wannier orbitals in %s.chk.fmt!" % filename + err_msg)
@@ -2098,8 +2098,8 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
                     chkpt_data["checkpoint"] = lines[pos].strip()
 
                     # have disentanglement
+                    pos += 1
                     try:
-                        pos += 1
                         idum = int(lines[pos])
                         if idum == 0 or idum == 1:
                             chkpt_data["have_disentanglement"] = (idum == 1)
@@ -2217,25 +2217,19 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
 
         temp_array = numpy.zeros((self.total_Bloch, self.total_MLWF), numpy.complex_)
 
-        if self._u_matrix_opt is None and self._u_matrix is None:
-            self.report_warning("U matrices are not set!")
-            self._u_matrix_full = None
+
+        if self._u_matrix is None:
+            self.report_error("U_matrix is not set!")
+        elif any(self._disentanglement_spin) and self._u_matrix_opt is None:
+            self.report_error("U_matrix_opt is not set")
 
         for k in range(self.n_k):
             for spin_bloc in range(self._n_spin):
-                for i in range(self.total_Bloch):
-                    for j in range(self.total_MLWF):
-                        temp_array[i, j] = 0.0
-                        if self._disentanglement_spin[spin_bloc]:
 
-                            for orb in range(self.total_MLWF):
-
-                                temp_array[i, j] += self._u_matrix_opt[i, orb, spin_bloc, k] * self._u_matrix[orb, j, spin_bloc, k]
-
-                        else:
-
-                                temp_array[i, j] = self._u_matrix[i, j, spin_bloc, k]
-
+                if self._disentanglement_spin[spin_bloc]:
+                    temp_array = numpy.dot(self._u_matrix_opt[:, :, spin_bloc, k], self._u_matrix[:, :, spin_bloc, k])
+                else:
+                    temp_array = self._u_matrix[:, :, spin_bloc, k]
 
                 # convention in Wannier90: O' = U^{\dagger} OU
                 # where O in Bloch basis and O' in MLWFs basis
@@ -2318,6 +2312,14 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
             else:
                 self.report_error("Invalid number of spin blocs!")
 
+            max_num_band = max(max(self.n_orbitals))
+            if self.total_Bloch != max_num_band:
+                self.report_error("Number of Bloch states is different than the maximum "
+                                  "number of bands in the energy window used for "
+                                  "the construction of MLWFs! "
+                                  "Number of Bloch states is %s " % self.total_Bloch +
+                                  "Maximum number of bands in the energy window is %s" % max_num_band)
+
             self._produce_full_U_matrix()
 
             # Initialises the projections:
@@ -2326,6 +2328,7 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
 
             for icrsh in range(self.n_corr_shells):
                 n_orb, offset = self.eval_offset(n_corr=icrsh)
+
                 for ik in range(self.n_k):
                     for isp in range(self._n_spin):
                         self.proj_mat[ik, isp, icrsh, 0: n_orb, :] = self._u_matrix_full[ik, isp, offset: offset + n_orb, :]
@@ -2459,7 +2462,7 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
 
                 Used in the search for the chemical potential.
 
-                This is the total number of electrons described in the Hamiltonian expressed in MLWF basis
+                This is the total number of electrons in the Hamiltonian expressed in MLWF basis
                 (correlated and non-correlated electrons).
 
                 This parameter is calculated using fermi_energy keyword from
@@ -2476,7 +2479,7 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
                  *   symm_op=1 symmetry inequivalent points used, and rest k-points
                      reproduced by means of the symmetry operations.
 
-                 This parameter is fixed to symm_op=0 for Wannier90Converter (No symmetry groups for the k-sum).
+                 This parameter is fixed to symm_op=0 for Wannier90Converter (no symmetry groups for the k-sum).
 
         - n_shells (int): number of all sites in the unit cell
 
@@ -2584,8 +2587,8 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
            to the particular inequivalent correlated shell. Each element in the list is a transformation matrix
            from the spherical harmonics to cubic basis.
 
-           T matrix is evaluated basing on the information about initial projections from case.win file.
-           The exact form of the T matrix is determined by the order of initial projection from case.win file.
+           T matrix is evaluated basing on the information about the initial projections from case.win file.
+           The exact form of the T matrix is determined by the order of the initial projections from case.win file.
 
            In case of spin-orbit coupling scenario T matrix is constructed according to  "non-mixing" base scenario.
 
