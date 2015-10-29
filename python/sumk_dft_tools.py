@@ -27,6 +27,7 @@ from symmetry import *
 from sumk_dft import SumkDFT
 from scipy.integrate import *
 from scipy.interpolate import *
+from scipy.linalg import *
 
 class SumkDFTTools(SumkDFT):
     """
@@ -529,6 +530,13 @@ class SumkDFTTools(SumkDFT):
         thingstoread = ['band_window','lattice_angles','lattice_constants','lattice_type','n_symmetries','rot_symmetries']
         self.read_input_from_hdf(subgrp=self.misc_data,things_to_read = thingstoread)
     
+    def read_transport_input_uncorr_from_hdf(self):
+        r"""
+        Reads the data for transport calculations from the hdf5 archive.
+        """
+        thingstoread = ['band_window_below','band_window_above','hopping_below','hopping_above']
+        self.read_input_from_hdf(subgrp=self.transp_data,things_to_read = thingstoread)
+    
     
     def cellvolume(self, lattice_type, lattice_constants, latticeangle):
         r"""
@@ -565,7 +573,7 @@ class SumkDFTTools(SumkDFT):
         return vol_c, vol_p
 
 
-    def transport_distribution(self, beta, directions=['xx'], energy_window=None, Om_mesh=[0.0], with_Sigma=False, n_om=None, broadening=0.0):
+    def transport_distribution(self, beta, directions=['xx'], energy_window=None, Om_mesh=[0.0], with_Sigma=False, n_om=None, broadening=0.0, include_uncorr=False, broadening_uncorr=0.05):
         r"""
         Calculates the transport distribution 
 
@@ -603,6 +611,8 @@ class SumkDFTTools(SumkDFT):
             ar = HDFArchive(self.hdf_file, 'r')
             if not (self.transp_data in ar): raise IOError, "transport_distribution: No %s subgroup in hdf file found! Call convert_transp_input first." %self.transp_data
         self.read_transport_input_from_hdf()
+        if (include_uncorr == True):
+            self.read_transport__input_uncorr_from_hdf()
         
         if mpi.is_master_node():
             # k-dependent-projections.
@@ -684,8 +694,21 @@ class SumkDFTTools(SumkDFT):
             # Calculate G_w  for ik and initialize A_kw
             G_w = self.lattice_gf(ik, mu, iw_or_w="w", beta=beta, broadening=broadening, mesh=mesh, with_Sigma=with_Sigma)
             A_kw = [numpy.zeros((self.n_orbitals[ik][isp], self.n_orbitals[ik][isp], n_om), dtype=numpy.complex_) 
-				for isp in range(n_inequiv_spin_blocks)]
+                            for isp in range(n_inequiv_spin_blocks)]
             
+           # uncorrelated bands
+           # change lattice_gf!
+            if (include_uncorr == True):
+                G_w_above = self.lattice_gf(ik, mu, iw_or_w="w", beta=beta, broadening=broadening_uncorr, mesh=mesh, with_Sigma=False, hopping = self.hopping_above)
+                A_kw_above = [numpy.zeros((self.band_window_above[isp][ik,1]-self.band_window_above[isp][ik,0]+1, 
+                                           self.band_window_above[isp][ik,1]-self.band_window_above[isp][ik,0]+1, n_om), dtype=numpy.complex_) 
+                                                    for isp in range(n_inequiv_spin_blocks)]
+                G_w_below = self.lattice_gf(ik, mu, iw_or_w="w", beta=beta, broadening=broadening_uncorr, mesh=mesh, with_Sigma=False, hopping = self.hopping_below)
+                A_kw_below = [numpy.zeros((self.band_window_below[isp][ik,1]-self.band_window_below[isp][ik,0]+1, 
+                                           self.band_window_below[isp][ik,1]-self.band_window_below[isp][ik,0]+1, n_om), dtype=numpy.complex_) 
+                                                    for isp in range(n_inequiv_spin_blocks)]
+           #############################################################
+
             for isp in range(n_inequiv_spin_blocks):
                 # copy data from G_w (swapaxes is used to have omega in the 3rd dimension)
                 A_kw[isp] = copy.deepcopy(G_w[self.spin_block_names[self.SO][isp]].data.swapaxes(0,1).swapaxes(1,2));
@@ -693,10 +716,32 @@ class SumkDFTTools(SumkDFT):
                 for iw in xrange(n_om):
                        A_kw[isp][:,:,iw] = -1.0/(2.0*numpy.pi*1j)*(A_kw[isp][:,:,iw]-numpy.conjugate(numpy.transpose(A_kw[isp][:,:,iw])))
                 
+               # uncorrelated bands
+                if (include_uncorr == True):
+                    A_kw_above[isp] = copy.deepcopy(G_w_above[self.spin_block_names[self.SO][isp]].data.swapaxes(0,1).swapaxes(1,2));
+                    A_kw_below[isp] = copy.deepcopy(G_w_below[self.spin_block_names[self.SO][isp]].data.swapaxes(0,1).swapaxes(1,2));
+                    for iw in xrange(n_om):
+                       A_kw_above[isp][:,:,iw] = -1.0/(2.0*numpy.pi*1j)*(A_kw_above[isp][:,:,iw]-numpy.conjugate(numpy.transpose(A_kw_above[isp][:,:,iw])))
+                       A_kw_below[isp][:,:,iw] = -1.0/(2.0*numpy.pi*1j)*(A_kw_below[isp][:,:,iw]-numpy.conjugate(numpy.transpose(A_kw_below[isp][:,:,iw])))
+               
+                    A_kw_corr = copy.deepcopy(A_kw)
+                    A_kw = [numpy.zeros((self.band_window_above[isp][ik,1]-self.band_window_below[isp][ik,0]+1, 
+                                           self.band_window_above[isp][ik,1]-self.band_window_below[isp][ik,0]+1, n_om), dtype=numpy.complex_) 
+                                                    for isp in range(n_inequiv_spin_blocks)]
+                    for iw in xrange(n_om):
+                        A_kw[isp][:,:,iw] = block_diag(A_kw_below[isp][:,:,iw],A_kw_corr[isp][:,:,iw], A_kw_above[isp][:,:,iw]) 
+               ##########################################################
+
                 b_min = max(self.band_window[isp][ik, 0], self.band_window_optics[isp][ik, 0])
                 b_max = min(self.band_window[isp][ik, 1], self.band_window_optics[isp][ik, 1])
                 A_i = slice(b_min - self.band_window[isp][ik, 0], b_max - self.band_window[isp][ik, 0] + 1)
                 v_i = slice(b_min - self.band_window_optics[isp][ik, 0], b_max - self.band_window_optics[isp][ik, 0] + 1)
+               
+               # uncorrelated bands
+                if (include_uncorr == True):
+                    A_i = slice(0, self.band_window_optics[isp][ik, 0] + 1)
+                    v_i = slice(0, self.band_window_optics[isp][ik, 0] + 1)
+               ############################################################
 
                 # loop over all symmetries
                 for R in self.rot_symmetries:
