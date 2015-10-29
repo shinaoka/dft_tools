@@ -76,6 +76,7 @@ class Wien2kConverter(ConverterTools):
         self.struct_file = filename+'.struct'
         self.outputs_file = filename+'.outputs'
         self.pmat_file = filename+'.pmat'
+        self.energy_file = filename+'.energy'
         self.dft_subgrp = dft_subgrp
         self.symmcorr_subgrp = symmcorr_subgrp
         self.parproj_subgrp = parproj_subgrp
@@ -544,14 +545,20 @@ class Wien2kConverter(ConverterTools):
         del ar
 
 
-    def convert_transport_input(self):
+    def convert_transport_input(self, read_energy_file = False):
         """ 
         Reads the necessary information for transport calculations on:
         
         - the optical band window and the velocity matrix elements from :file:`case.pmat`
+        - the energies for the bands included in the optical window but not in the projective
+          energy window form :file:`case.energy`
 
         and stores the data in the hdf5 archive.
  
+        Parameters
+        ----------
+        read_energy_file : boolean, optional
+            Flag for reading of hopping for uncorrelated bands
         """
         
         if not (mpi.is_master_node()): return
@@ -576,7 +583,7 @@ class Wien2kConverter(ConverterTools):
         elif SP == 1:
             files = [self.pmat_file+'up', self.pmat_file+'dn']
         else: # SO and SP can't both be 1
-            assert 0, "convert_transport_input: Reading velocity file error! Check SP and SO!"
+            assert 0, "convert_transport_input: Reading .pmat file error! Check SP and SO!"
 
         velocities_k = [[] for f in files]
         band_window_optics = []
@@ -605,7 +612,7 @@ class Wien2kConverter(ConverterTools):
                 velocities_k[isp].append(velocity_xyz)
             band_window_optics.append(numpy.array(band_window_optics_isp))
             R.close() # Reading done!
-
+        
         # Put data to HDF5 file
         ar = HDFArchive(self.hdf_file, 'a')
         if not (self.transp_subgrp in ar): ar.create_group(self.transp_subgrp)
@@ -614,6 +621,72 @@ class Wien2kConverter(ConverterTools):
         for it in things_to_save: ar[self.transp_subgrp][it] = locals()[it]
         del ar
 
+        # Read energies below and above projective window from .energy file
+        ###################################################################
+
+        # this needs to be changed for so!
+        if (SP == 0):
+            if (SO == 0):
+                files = [self.energy_file]
+            if (SO == 1):
+                files = [self.energy_file+'so']
+        elif (SP == 1):
+            if (SO == 0):
+                files = [self.energy_file+'up', self.energy_file+'dn']
+            if (SO == 1): # SO and SP can't be both 1
+                assert 0, "convert_transport_input: Reading energy file error! Check SP and SO!"
+    
+        # Determine the number of bands below and above the projection window
+        band_window_above = [None for isp in range(SP + 1 - SO)]
+        band_window_below = [None for isp in range(SP + 1 - SO)]
+        ar = HDFArchive(self.hdf_file,'r')
+        band_window = ar['dft_misc_input']['band_window']
+        energy_unit = ar['dft_input']['energy_unit']
+        del ar
+
+        for isp in range(self.n_spin_blocs):
+            band_window_above[isp] = numpy.zeros((n_k, 2), dtype=int) 
+            band_window_below[isp] = numpy.zeros((n_k, 2), dtype=int) 
+            for ik in range(n_k):
+                band_window_above[isp][ik,0] = band_window[isp][ik,1]+1 
+                band_window_above[isp][ik,1] = band_window_optics[isp][ik,1]
+                band_window_below[isp][ik,0] = band_window_optics[isp][ik,0]
+                band_window_below[isp][ik,1] = band_window[isp][ik,0]-1
+        n_bands_below =  numpy.max([band_window_below[isp][:,1] - band_window_below[isp][:,0] for isp in range(self.n_spin_blocs)]) + 1
+        n_bands_above =  numpy.max([band_window_above[isp][:,1] - band_window_above[isp][:,0] for isp in range(self.n_spin_blocs)]) + 1
+
+        hopping_below = numpy.zeros([n_k,self.n_spin_blocs,numpy.max(n_bands_below),numpy.max(n_bands_below)],numpy.complex_)
+        hopping_above = numpy.zeros([n_k,self.n_spin_blocs,numpy.max(n_bands_above),numpy.max(n_bands_above)],numpy.complex_)
+        
+        for isp, f in enumerate(files):
+            if not os.path.exists(f) : raise IOError, "convert_transport_input: File %s does not exist" %f
+            mpi.report("Reading input from %s..."%f)
+
+            R = ConverterTools.read_fortran_file(self, f, {'D':'E','(':'',')':'',',':' '}, skip_lines = 6)
+            
+            for ik in xrange(n_k):
+                print 'kpoint', ik
+                for _ in xrange(5):
+                    R.next()
+                n_bands = int(R.next())
+                R.next()
+                for ind_band in xrange(1,n_bands+1):
+                    if ind_band != R.next():
+                        assert 0, "convert_transport_input: Reading energy file error! Check SP and SO!"
+                    energy = R.next()
+                    if (ind_band >= band_window_below[isp][ik,0]) and (ind_band <= band_window_below[isp][ik,1]):
+                        hopping_below[ik,isp,ind_band-band_window_below[isp][ik,0],ind_band-band_window_below[isp][ik,0]] = energy * energy_unit
+                    elif (ind_band >= band_window_above[isp][ik,0]) and (ind_band <= band_window_above[isp][ik,1]):
+                        hopping_above[ik,isp,ind_band-band_window_above[isp][ik,0],ind_band-band_window_above[isp][ik,0]] = energy * energy_unit
+            R.close() # Reading done!
+        
+        ar = HDFArchive(self.hdf_file, 'a')
+        if not (self.transp_subgrp in ar): ar.create_group(self.transp_subgrp)
+        # The subgroup containing the data. If it does not exist, it is created. If it exists, the data is overwritten!!!
+        things_to_save = ['band_window_below', 'band_window_above','hopping_below','hopping_above']
+        for it in things_to_save: ar[self.transp_subgrp][it] = locals()[it]
+        del ar
+    
     def convert_symmetry_input(self, orbits, symm_file, symm_subgrp, SO, SP):
         """
         Reads and stores symmetrisation data from symm_file, which can be is case.sympar or case.symqmc.

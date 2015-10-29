@@ -24,7 +24,7 @@ import pytriqs.utility.mpi as mpi
 
 class ConverterTools:
 
-    def read_fortran_file(self,filename,to_replace):
+    def read_fortran_file(self,filename,to_replace,skip_lines=0):
         """
         Returns a generator that yields all numbers in the Fortran file as float, with possible replacements.
 
@@ -44,10 +44,12 @@ class ConverterTools:
         import os.path
         import string
         if not(os.path.exists(filename)) : raise IOError, "File %s does not exist."%filename
-        for line in open(filename,'r') :
-            for old,new in to_replace.iteritems(): line = line.replace(old,new)
-            for x in line.split(): yield string.atof(x)
-
+        with open(filename, 'r') as f:
+            for _ in xrange(skip_lines):
+                f.readline()
+            for line in f:
+                for old,new in to_replace.iteritems(): line = line.replace(old,new)
+                for x in line.split(): yield string.atof(x)
 
     def repack(self):
         """
