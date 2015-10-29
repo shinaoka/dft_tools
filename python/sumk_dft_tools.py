@@ -612,7 +612,7 @@ class SumkDFTTools(SumkDFT):
             if not (self.transp_data in ar): raise IOError, "transport_distribution: No %s subgroup in hdf file found! Call convert_transp_input first." %self.transp_data
         self.read_transport_input_from_hdf()
         if (include_uncorr == True):
-            self.read_transport__input_uncorr_from_hdf()
+            self.read_transport_input_uncorr_from_hdf()
         
         if mpi.is_master_node():
             # k-dependent-projections.
@@ -688,7 +688,17 @@ class SumkDFTTools(SumkDFT):
         
         self.Gamma_w = {direction: numpy.zeros((len(self.Om_mesh), n_om), dtype=numpy.float_) for direction in self.directions}
         
-        # Sum over all k-points
+       # uncorrelated bands
+        if (include_uncorr == True):
+            self.n_orbitals_above = numpy.zeros([self.n_k,n_inequiv_spin_blocks],numpy.int)
+            self.n_orbitals_below = numpy.zeros([self.n_k,n_inequiv_spin_blocks],numpy.int)
+
+            for ik in range(self.n_k):
+                for isp in range(n_inequiv_spin_blocks):
+                    self.n_orbitals_above[ik,isp] = self.band_window_above[isp][ik,1] - self.band_window_above[isp][ik,0] +1
+                    self.n_orbitals_below[ik,isp] = self.band_window_below[isp][ik,1] - self.band_window_below[isp][ik,0] +1
+        
+       ###########################################
         ikarray = numpy.array(range(self.n_k))
         for ik in mpi.slice_array(ikarray):
             # Calculate G_w  for ik and initialize A_kw
@@ -697,17 +707,29 @@ class SumkDFTTools(SumkDFT):
                             for isp in range(n_inequiv_spin_blocks)]
             
            # uncorrelated bands
-           # change lattice_gf!
             if (include_uncorr == True):
-                G_w_above = self.lattice_gf(ik, mu, iw_or_w="w", beta=beta, broadening=broadening_uncorr, mesh=mesh, with_Sigma=False, hopping = self.hopping_above)
+                # This is a dirty workaround and should be changed!
+                hopping_save = copy.deepcopy(self.hopping)
+                self.hopping = copy.deepcopy(self.hopping_above)
+                n_orbitals_save = copy.deepcopy(self.n_orbitals)
+                self.n_orbitals = copy.deepcopy(self.n_orbitals_above)
+
+                G_w_above = self.lattice_gf(ik, mu, iw_or_w="w", beta=beta, broadening=broadening_uncorr, mesh=mesh, with_Sigma=False)
                 A_kw_above = [numpy.zeros((self.band_window_above[isp][ik,1]-self.band_window_above[isp][ik,0]+1, 
                                            self.band_window_above[isp][ik,1]-self.band_window_above[isp][ik,0]+1, n_om), dtype=numpy.complex_) 
                                                     for isp in range(n_inequiv_spin_blocks)]
-                G_w_below = self.lattice_gf(ik, mu, iw_or_w="w", beta=beta, broadening=broadening_uncorr, mesh=mesh, with_Sigma=False, hopping = self.hopping_below)
+                
+                self.hopping = copy.deepcopy(self.hopping_below)
+                self.n_orbitals = copy.deepcopy(self.n_orbitals_below)
+                
+                G_w_below = self.lattice_gf(ik, mu, iw_or_w="w", beta=beta, broadening=broadening_uncorr, mesh=mesh, with_Sigma=False)
                 A_kw_below = [numpy.zeros((self.band_window_below[isp][ik,1]-self.band_window_below[isp][ik,0]+1, 
                                            self.band_window_below[isp][ik,1]-self.band_window_below[isp][ik,0]+1, n_om), dtype=numpy.complex_) 
                                                     for isp in range(n_inequiv_spin_blocks)]
-           #############################################################
+           
+                self.hopping = copy.deepcopy(hopping_save)
+                self.n_orbitals = copy.deepcopy(n_orbitals_save)
+                #############################################################
 
             for isp in range(n_inequiv_spin_blocks):
                 # copy data from G_w (swapaxes is used to have omega in the 3rd dimension)
