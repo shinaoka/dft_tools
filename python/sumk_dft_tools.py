@@ -703,7 +703,7 @@ class SumkDFTTools(SumkDFT):
         ikarray = numpy.array(range(self.n_k))
         for ik in mpi.slice_array(ikarray):
             # Calculate G_w  for ik and initialize A_kw
-            G_w = self.lattice_gf(ik, mu, iw_or_w="w", beta=beta, broadening=broadening, mesh=mesh, with_Sigma=with_Sigma)
+            G_w = copy.deepcopy(self.lattice_gf(ik, mu, iw_or_w="w", beta=beta, broadening=broadening, mesh=mesh, with_Sigma=with_Sigma))
             A_kw = [numpy.zeros((self.n_orbitals[ik][isp], self.n_orbitals[ik][isp], n_om), dtype=numpy.complex_) 
                             for isp in range(n_inequiv_spin_blocks)]
             
@@ -715,7 +715,7 @@ class SumkDFTTools(SumkDFT):
                 n_orbitals_save = copy.deepcopy(self.n_orbitals)
                 self.n_orbitals = copy.deepcopy(self.n_orbitals_above)
 
-                G_w_above = self.lattice_gf(ik, mu, iw_or_w="w", beta=beta, broadening=broadening_uncorr, mesh=mesh, with_Sigma=False)
+                G_w_above = copy.deepcopy(self.lattice_gf(ik, mu, iw_or_w="w", beta=beta, broadening=broadening_uncorr, mesh=mesh, with_Sigma=False))
                 A_kw_above = [numpy.zeros((self.band_window_above[isp][ik,1]-self.band_window_above[isp][ik,0]+1, 
                                            self.band_window_above[isp][ik,1]-self.band_window_above[isp][ik,0]+1, n_om), dtype=numpy.complex_) 
                                                     for isp in range(n_inequiv_spin_blocks)]
@@ -723,7 +723,7 @@ class SumkDFTTools(SumkDFT):
                 self.hopping = copy.deepcopy(self.hopping_below)
                 self.n_orbitals = copy.deepcopy(self.n_orbitals_below)
                 
-                G_w_below = self.lattice_gf(ik, mu, iw_or_w="w", beta=beta, broadening=broadening_uncorr, mesh=mesh, with_Sigma=False)
+                G_w_below = copy.deepcopy(self.lattice_gf(ik, mu, iw_or_w="w", beta=beta, broadening=broadening_uncorr, mesh=mesh, with_Sigma=False))
                 A_kw_below = [numpy.zeros((self.band_window_below[isp][ik,1]-self.band_window_below[isp][ik,0]+1, 
                                            self.band_window_below[isp][ik,1]-self.band_window_below[isp][ik,0]+1, n_om), dtype=numpy.complex_) 
                                                     for isp in range(n_inequiv_spin_blocks)]
