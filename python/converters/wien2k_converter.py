@@ -77,6 +77,7 @@ class Wien2kConverter(ConverterTools):
         self.outputs_file = filename+'.outputs'
         self.pmat_file = filename+'.pmat'
         self.energy_file = filename+'.energy'
+        self.scf2_file = filename+'.scf2'
         self.dft_subgrp = dft_subgrp
         self.symmcorr_subgrp = symmcorr_subgrp
         self.parproj_subgrp = parproj_subgrp
@@ -621,6 +622,23 @@ class Wien2kConverter(ConverterTools):
         for it in things_to_save: ar[self.transp_subgrp][it] = locals()[it]
         del ar
 
+
+        # Read Fermi energy from .scf2 file
+        ###################################################################
+        
+        if (os.path.exists(self.scf2_file)):
+            mpi.report("Reading input from %s..."%self.scf2_file)
+        
+            with open(self.scf2_file) as R:
+                try:
+                    while 1:
+                        temp = R.readline().strip().split()
+                        if (temp) and (temp[0] == ':FER'):
+                            E_Fermi = float(temp[-1])
+                            break
+                except IOError:
+                    raise "convert_misc_input: reading file %s failed" %self.struct_file
+
         # Read energies below and above projective window from .energy file
         ###################################################################
 
@@ -675,9 +693,9 @@ class Wien2kConverter(ConverterTools):
                         assert 0, "convert_transport_input: Reading energy file error! Check SP and SO!"
                     energy = R.next()
                     if (ind_band >= band_window_below[isp][ik,0]) and (ind_band <= band_window_below[isp][ik,1]):
-                        hopping_below[ik,isp,ind_band-band_window_below[isp][ik,0],ind_band-band_window_below[isp][ik,0]] = energy * energy_unit
+                        hopping_below[ik,isp,ind_band-band_window_below[isp][ik,0],ind_band-band_window_below[isp][ik,0]] = (energy-E_Fermi) * energy_unit
                     elif (ind_band >= band_window_above[isp][ik,0]) and (ind_band <= band_window_above[isp][ik,1]):
-                        hopping_above[ik,isp,ind_band-band_window_above[isp][ik,0],ind_band-band_window_above[isp][ik,0]] = energy * energy_unit
+                        hopping_above[ik,isp,ind_band-band_window_above[isp][ik,0],ind_band-band_window_above[isp][ik,0]] = (energy-E_Fermi) * energy_unit
             R.close() # Reading done!
         
         ar = HDFArchive(self.hdf_file, 'a')

@@ -761,8 +761,8 @@ class SumkDFTTools(SumkDFT):
                
                # uncorrelated bands
                 if (include_uncorr == True):
-                    A_i = slice(0, self.band_window_optics[isp][ik, 0] + 1)
-                    v_i = slice(0, self.band_window_optics[isp][ik, 0] + 1)
+                    A_i = slice(0, self.band_window_optics[isp][ik, 1] + 1)
+                    v_i = slice(0, self.band_window_optics[isp][ik, 1] + 1)
                ############################################################
 
                 # loop over all symmetries
