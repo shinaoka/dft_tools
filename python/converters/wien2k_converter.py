@@ -672,9 +672,9 @@ class Wien2kConverter(ConverterTools):
                 band_window_below[isp][ik,1] = band_window[isp][ik,0]-1
         n_bands_below =  numpy.max([band_window_below[isp][:,1] - band_window_below[isp][:,0] for isp in range(self.n_spin_blocs)]) + 1
         n_bands_above =  numpy.max([band_window_above[isp][:,1] - band_window_above[isp][:,0] for isp in range(self.n_spin_blocs)]) + 1
-
-        hopping_below = numpy.zeros([n_k,self.n_spin_blocs,numpy.max(n_bands_below),numpy.max(n_bands_below)],numpy.complex_)
-        hopping_above = numpy.zeros([n_k,self.n_spin_blocs,numpy.max(n_bands_above),numpy.max(n_bands_above)],numpy.complex_)
+        
+        hopping_below = numpy.zeros([n_k,self.n_spin_blocs,numpy.max(n_bands_below.clip(0)),numpy.max(n_bands_below.clip(0))],numpy.complex_)
+        hopping_above = numpy.zeros([n_k,self.n_spin_blocs,numpy.max(n_bands_above.clip(0)),numpy.max(n_bands_above.clip(0))],numpy.complex_)
         
         for isp, f in enumerate(files):
             if not os.path.exists(f) : raise IOError, "convert_transport_input: File %s does not exist" %f
@@ -683,7 +683,6 @@ class Wien2kConverter(ConverterTools):
             R = ConverterTools.read_fortran_file(self, f, {'D':'E','(':'',')':'',',':' '}, skip_lines = 6)
             
             for ik in xrange(n_k):
-                print 'kpoint', ik
                 for _ in xrange(5):
                     R.next()
                 n_bands = int(R.next())

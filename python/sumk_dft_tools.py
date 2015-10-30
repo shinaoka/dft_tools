@@ -625,8 +625,8 @@ class SumkDFTTools(SumkDFT):
         if (energy_window[0] >= energy_window[1] or energy_window[0] >= 0 or energy_window[1] <= 0):
             assert 0, "transport_distribution: energy_window wrong!"
 
-        if (abs(self.fermi_dis(energy_window[0],beta)*self.fermi_dis(-energy_window[0],beta)) > 1e-5
-            or abs(self.fermi_dis(energy_window[1],beta)*self.fermi_dis(-energy_window[1],beta)) > 1e-5):
+        if (abs(self.fermi_dis(numpy.array(energy_window[0]),beta)*self.fermi_dis(numpy.array(-energy_window[0]),beta)) > 1e-5
+            or abs(self.fermi_dis(numpy.array(energy_window[1]),beta)*self.fermi_dis(numpy.array(-energy_window[1]),beta)) > 1e-5):
                 mpi.report("\n####################################################################")
                 mpi.report("transport_distribution: WARNING - energy window might be too narrow!")
                 mpi.report("####################################################################\n")
@@ -904,9 +904,11 @@ class SumkDFTTools(SumkDFT):
         .. math::
            f(x) = 1/(e^x+1).
 
+        Inputs with :math:`\omega\beta` > 300  are cliped to :math:`\omega\beta` = 300 to avoid an overflow of numpy.exp()
+
         Parameters
         ----------
-        w : double
+        w : double numpy.ndarray
            frequency
         beta : double
            inverse temperature
@@ -915,4 +917,7 @@ class SumkDFTTools(SumkDFT):
         -------
         f : double
         """
+        if not isinstance(w, numpy.ndarray):
+            assert 0, 'fermi_dis: This function needs a numpy.array as w!'
+        w[numpy.asarray(w > 300.0/beta)] = 300.0/beta
         return 1.0/(numpy.exp(w*beta)+1)
