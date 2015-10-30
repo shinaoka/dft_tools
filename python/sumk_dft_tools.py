@@ -687,9 +687,10 @@ class SumkDFTTools(SumkDFT):
             print "Omega mesh automatically repined to:  ", self.Om_mesh
         
         self.Gamma_w = {direction: numpy.zeros((len(self.Om_mesh), n_om), dtype=numpy.float_) for direction in self.directions}
-        
+
        # uncorrelated bands
         if (include_uncorr == True):
+            
             self.n_orbitals_above = numpy.zeros([self.n_k,n_inequiv_spin_blocks],numpy.int)
             self.n_orbitals_below = numpy.zeros([self.n_k,n_inequiv_spin_blocks],numpy.int)
 
@@ -761,10 +762,10 @@ class SumkDFTTools(SumkDFT):
                
                # uncorrelated bands
                 if (include_uncorr == True):
-                    A_i = slice(0, self.band_window_optics[isp][ik, 1] + 1)
-                    v_i = slice(0, self.band_window_optics[isp][ik, 1] + 1)
+                    A_i = slice(0, self.band_window_optics[isp][ik, 1]-self.band_window_optics[isp][ik,0] + 1)
+                    v_i = slice(0, self.band_window_optics[isp][ik, 1]-self.band_window_optics[isp][ik,0] + 1)
                ############################################################
-
+                
                 # loop over all symmetries
                 for R in self.rot_symmetries:
                     # get transformed velocity under symmetry R
