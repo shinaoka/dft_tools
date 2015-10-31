@@ -325,7 +325,7 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
 
         self._dummy_projections_used = False  # defines whether or not dummy projections are in use
 
-        self._extra_par = {"num_zero": 0.0001,                 # default values of additional parameters for
+        self._extra_par = {"num_zero": 0.01,                 # default values of additional parameters for
                            "verbosity": 2,                     # Wannier90Converter. They can be modified
                            "non_standard_corr_shells": False}  # by the user in case additional ASCII file is provided.
 
