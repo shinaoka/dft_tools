@@ -850,9 +850,137 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
     def _get_shells(self):
         """
 
-        Calculates shells  basing on
+        Calculates shells basing on the
         data which was extracted from *.win file.
-        Value of "sort" keyword  is found later from H_R by _h_to_triqs method.
+        Value of "sort" keyword  is found later from H_R by _h_to_triqs method (value of sort determines inequivalent
+        sites).
+
+        **Brief description of the implemented mapping between initial guess for MLWFs and shells**:
+
+            A fixed format of initial guess(es) for MLWFs (also called initial projection(s) ) is expected in the win
+            file. The format can be expressed as
+
+            site: init_proj : some_stuff
+
+            where:
+
+                 *  site -- indicates the atom (site),
+
+                 *  init_proj -- initial guess(es) for  MLWFs ,
+
+                 *  some_stuff -- additional parameters like for example orientation of an
+                                  initial guess(es) for MLWFs (for example x=1,1,0). More about additional options for
+                                  the MLWFs  initial guesses can be found in Wannier90 user guide.
+
+            Everything before first ":" is treated as a name of site (a name of site is implemented as a string in
+            the interface). Everything between first ":" and the second ":" is
+            treated as an initial guess for MLWF or the list of initial guesses for MLWFs. Everything after second ":"
+            is neglected by the interface.
+
+            There is freedom in naming sites. One can define site as
+
+                f=0.000000000,0.000000000,0.000000000
+
+            Like for example:
+
+                f=0.000000000,0.000000000,0.000000000:dxy
+
+            It means that one  wants the initial guess for MLWF in the form of dxy on site
+            "f=0.000000000,0.000000000,0.000000000". It is mapped onto the following shells
+            (here shells means a keyword required by SumkDFT):
+
+               shells =  [["dim":1, "atom":0, "l":2]]
+
+            A name of site uniquely defines a site (it is treated as ID of a site). For example:
+
+                f=0.000000000,0.000000000,0.000000000:dxy
+                f=0.500000000,0.500000000,0.000000000:dyz
+                f=0.000000000,0.000000000,0.500000000:dxz
+
+            is understood by the interface as one wants to define three different initial guesses for MLWFs on
+            three different sites:
+
+             dxy initial guess for MLWF on site f=0.000000000,0.000000000,0.000000000,
+
+             dyz initial guess for MLWF on site f=0.500000000,0.500000000,0.000000000,
+
+             dxz initial guess for MLWF on site f=0.000000000,0.000000000,0.500000000.
+
+
+            The example above is mapped onto the following shells (SumkDFT keyword):
+
+                       shells = [["dim":1, "atom":0, "l":2],
+                                 ["dim":1, "atom":1, "l":2],
+                                 ["dim":1, "atom":2, "l":2]]).
+
+            All formats supported by Wannier90 are also supported by the interface. For example one site called C
+            on which there are three MLWFs with p character (so p is a valid initial guess) can be defined as:
+
+                C:p
+
+            which is equivalent to:
+
+                C:pz;px;py
+
+            which is equivalent to:
+
+                C:pz
+                C:px
+                C:py
+
+            which is equivalent to:
+
+                C:l=1,mr=1
+                C:l=1,mr=2
+                C:l=1,mr=3
+
+            which is equivalent to:
+
+                C:l=1,mr=1,2,3
+
+            More information about l and mr parameters used in the two previous examples  and rules for defining a
+            valid name of site can be found in Wannier90 user guide.
+
+            Each of five equivalent definitions is mapped by the interface to the following shells (SumkDFT keyword):
+
+                  shells = [["dim":3, "atom":0, "l":1]]
+
+            On one site there can be defined more than one shell. For example:
+
+               O:s
+               O:p
+
+            defines two shells on site called "O". First shell is s and the second p. They are mapped onto
+            the following shells (here shells means a keyword required by SumkDFT):
+
+                 shells = [["dim":1, "atom":0, "l":0],
+                           ["dim":3, "atom":1, "l":1]]
+
+            In case few orbitals from the same shell are defined for the same site they are considered one shell. For
+            example:
+
+                Fe:dx2-y2
+                Fe:dyz
+                Fe:dz2
+                Fe:dxz
+                Fe:dxy
+
+            are considered one d  shell on site called Fe. It is mapped onto the following shells (SumkDFT keyword)
+
+               shells = [["dim":5, "atom":0, "l":2]]
+
+            In general, letter cases of data in *win file do not matter. However, there is one exception. The letter
+            cases of sites matter. For example:
+
+               Fe: dyz
+
+               fe: dxz
+
+            defines two different initial guesses for MLWF on two different sites: site Fe and site fe. They are mapped
+            onto the following shells (SumkDFT keyword):
+
+              shells = [["dim":1, "atom":0, "l":2],
+                        ["dim":1, "atom":1, "l":2]]
 
         """
         lines = self._win_par["projections"].split("\n")
