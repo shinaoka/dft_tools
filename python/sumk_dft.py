@@ -484,7 +484,7 @@ class SumkDFT:
                  if with_Sigma:
                     glist = lambda : [ GfReFreq(indices=inner,mesh=Sigma_imp[0].mesh) for block,inner in gf_struct]
                  else:
-                    glist = lambda : [ GfReFreq(indices=inner,window=(mesh[0],mesh[1]),n_points=mesh[2]) for block,inner in gf_struct]
+                    glist = lambda : [ GfReFreq(indices=inner,window=(mesh[0],mesh[1]),n_points=mesh[2]) if inner else GfReFreq(indices=[[]],window=(mesh[0],mesh[1]),n_points=mesh[2]) for block,inner in gf_struct]
             G_latt = BlockGf(name_list = block_ind_list, block_list = glist(), make_copies = False)
             G_latt.zero()
 

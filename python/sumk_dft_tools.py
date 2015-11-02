@@ -687,6 +687,13 @@ class SumkDFTTools(SumkDFT):
             print "Omega mesh automatically repined to:  ", self.Om_mesh
         
         self.Gamma_w = {direction: numpy.zeros((len(self.Om_mesh), n_om), dtype=numpy.float_) for direction in self.directions}
+        self.n_orbitals_optics = numpy.zeros([self.n_k,n_inequiv_spin_blocks],numpy.int)
+       
+        for ik in range(self.n_k):
+            for isp in range(n_inequiv_spin_blocks):
+                self.n_orbitals_optics[ik,isp] = self.band_window_optics[isp][ik,1] - self.band_window_optics[isp][ik,0] +1 
+        if (self.n_orbitals_optics - self.n_orbitals < 0).all():
+            assert 0, 'transport_distribution: optics window has to be the same size or larger than the projective window from dmftproj!'
 
        # uncorrelated bands
         if (include_uncorr == True):
@@ -698,7 +705,7 @@ class SumkDFTTools(SumkDFT):
                 for isp in range(n_inequiv_spin_blocks):
                     self.n_orbitals_above[ik,isp] = self.band_window_above[isp][ik,1] - self.band_window_above[isp][ik,0] +1
                     self.n_orbitals_below[ik,isp] = self.band_window_below[isp][ik,1] - self.band_window_below[isp][ik,0] +1
-        
+       
        ###########################################
         ikarray = numpy.array(range(self.n_k))
         for ik in mpi.slice_array(ikarray):
@@ -710,23 +717,24 @@ class SumkDFTTools(SumkDFT):
            # uncorrelated bands
             if (include_uncorr == True):
                 # This is a dirty workaround and should be changed!
+                
                 hopping_save = copy.deepcopy(self.hopping)
-                self.hopping = copy.deepcopy(self.hopping_above)
                 n_orbitals_save = copy.deepcopy(self.n_orbitals)
+
+                A_kw_above = [numpy.zeros((self.n_orbitals_above[ik,isp],self.n_orbitals_above[ik,isp], n_om), dtype=numpy.complex_) 
+                                                    for isp in range(n_inequiv_spin_blocks)]
+                self.hopping = copy.deepcopy(self.hopping_above)
                 self.n_orbitals = copy.deepcopy(self.n_orbitals_above)
 
                 G_w_above = copy.deepcopy(self.lattice_gf(ik, mu, iw_or_w="w", beta=beta, broadening=broadening_uncorr, mesh=mesh, with_Sigma=False))
-                A_kw_above = [numpy.zeros((self.band_window_above[isp][ik,1]-self.band_window_above[isp][ik,0]+1, 
-                                           self.band_window_above[isp][ik,1]-self.band_window_above[isp][ik,0]+1, n_om), dtype=numpy.complex_) 
+                
+                A_kw_below = [numpy.zeros((self.n_orbitals_below[ik,isp], self.n_orbitals_below[ik,isp], n_om), dtype=numpy.complex_) 
                                                     for isp in range(n_inequiv_spin_blocks)]
                 
                 self.hopping = copy.deepcopy(self.hopping_below)
                 self.n_orbitals = copy.deepcopy(self.n_orbitals_below)
                 
                 G_w_below = copy.deepcopy(self.lattice_gf(ik, mu, iw_or_w="w", beta=beta, broadening=broadening_uncorr, mesh=mesh, with_Sigma=False))
-                A_kw_below = [numpy.zeros((self.band_window_below[isp][ik,1]-self.band_window_below[isp][ik,0]+1, 
-                                           self.band_window_below[isp][ik,1]-self.band_window_below[isp][ik,0]+1, n_om), dtype=numpy.complex_) 
-                                                    for isp in range(n_inequiv_spin_blocks)]
            
                 self.hopping = copy.deepcopy(hopping_save)
                 self.n_orbitals = copy.deepcopy(n_orbitals_save)
@@ -741,12 +749,16 @@ class SumkDFTTools(SumkDFT):
                 
                # uncorrelated bands
                 if (include_uncorr == True):
-                    A_kw_above[isp] = copy.deepcopy(G_w_above[self.spin_block_names[self.SO][isp]].data.swapaxes(0,1).swapaxes(1,2));
-                    A_kw_below[isp] = copy.deepcopy(G_w_below[self.spin_block_names[self.SO][isp]].data.swapaxes(0,1).swapaxes(1,2));
-                    for iw in xrange(n_om):
-                       A_kw_above[isp][:,:,iw] = -1.0/(2.0*numpy.pi*1j)*(A_kw_above[isp][:,:,iw]-numpy.conjugate(numpy.transpose(A_kw_above[isp][:,:,iw])))
-                       A_kw_below[isp][:,:,iw] = -1.0/(2.0*numpy.pi*1j)*(A_kw_below[isp][:,:,iw]-numpy.conjugate(numpy.transpose(A_kw_below[isp][:,:,iw])))
-               
+                    if self.n_orbitals_below[ik,isp] > 0:    
+                        A_kw_below[isp] = copy.deepcopy(G_w_below[self.spin_block_names[self.SO][isp]].data.swapaxes(0,1).swapaxes(1,2));
+                        for iw in xrange(n_om):
+                            A_kw_below[isp][:,:,iw] = -1.0/(2.0*numpy.pi*1j)*(A_kw_below[isp][:,:,iw]-numpy.conjugate(numpy.transpose(A_kw_below[isp][:,:,iw])))
+                    
+                    if self.n_orbitals_above[ik,isp] > 0:    
+                        A_kw_above[isp] = copy.deepcopy(G_w_above[self.spin_block_names[self.SO][isp]].data.swapaxes(0,1).swapaxes(1,2));
+                        for iw in xrange(n_om):
+                            A_kw_above[isp][:,:,iw] = -1.0/(2.0*numpy.pi*1j)*(A_kw_above[isp][:,:,iw]-numpy.conjugate(numpy.transpose(A_kw_above[isp][:,:,iw])))
+
                     A_kw_corr = copy.deepcopy(A_kw)
                     A_kw = [numpy.zeros((self.band_window_above[isp][ik,1]-self.band_window_below[isp][ik,0]+1, 
                                            self.band_window_above[isp][ik,1]-self.band_window_below[isp][ik,0]+1, n_om), dtype=numpy.complex_) 
@@ -758,20 +770,20 @@ class SumkDFTTools(SumkDFT):
                 b_min = max(self.band_window[isp][ik, 0], self.band_window_optics[isp][ik, 0])
                 b_max = min(self.band_window[isp][ik, 1], self.band_window_optics[isp][ik, 1])
                 A_i = slice(b_min - self.band_window[isp][ik, 0], b_max - self.band_window[isp][ik, 0] + 1)
-                v_i = slice(b_min - self.band_window_optics[isp][ik, 0], b_max - self.band_window_optics[isp][ik, 0] + 1)
+                v_i = slice(b_min - self.n_orbitals_optics[ik,isp])
                
                # uncorrelated bands
                 if (include_uncorr == True):
-                    A_i = slice(0, self.band_window_optics[isp][ik, 1]-self.band_window_optics[isp][ik,0] + 1)
-                    v_i = slice(0, self.band_window_optics[isp][ik, 1]-self.band_window_optics[isp][ik,0] + 1)
+                    A_i = slice(0, self.n_orbitals_optics[ik,isp])
+                    v_i = slice(0, self.n_orbitals_optics[ik,isp])
                ############################################################
                 
                 # loop over all symmetries
                 for R in self.rot_symmetries:
                     # get transformed velocity under symmetry R
                     vel_R = copy.deepcopy(self.velocities_k[isp][ik])
-                    for nu1 in range(self.band_window_optics[isp][ik, 1] - self.band_window_optics[isp][ik, 0] + 1):
-                        for nu2 in range(self.band_window_optics[isp][ik, 1] - self.band_window_optics[isp][ik, 0] + 1):
+                    for nu1 in range(self.n_orbitals_optics[ik,isp]):
+                        for nu2 in range(self.n_orbitals_optics[ik,isp]):
                             vel_R[nu1][nu2][:] = numpy.dot(R, vel_R[nu1][nu2][:])
                     
                     # calculate Gamma_w for each direction from the velocities vel_R and the spectral function A_kw
