@@ -425,7 +425,7 @@ class AsciiIO(Check):
                             if words_in_line[0].lower() == "end" and in_block:  # end of block
 
                                 in_block = False
-                                if not words_in_line[1] == keyword:
+                                if not words_in_line[1].lower() == keyword:
                                     self.report_error("Wrong format of the block!")
                                 if not len(words_in_line) == 2:
                                     self.report_error("Wrong format of the block!")
@@ -439,8 +439,9 @@ class AsciiIO(Check):
                                         in_block = True
                                         variable_list_temp.remove(keyword)
                                     else:
-                                        self.report_warning("Redefinition of keyword in line %s" % (num_line + 1))
                                         # first line is marked as 1
+                                        self.report_warning("Redefinition of keyword in line %s" % (num_line + 1))
+
 
                                 if not len(words_in_line) == 2:
                                     self.report_error("Wrong format of the block!")

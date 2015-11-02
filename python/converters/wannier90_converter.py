@@ -256,6 +256,8 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
                                 # of spin-polarised calculation it is expected that the same
                                 # number of MLWFs is constructed for each spin channel
 
+        self._DNF = -1  # internal parameter to avoid magic numbers (DATA NOT FOUND)
+
         self._R_sym = None  # symmetry operations
 
 
@@ -321,13 +323,17 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
 
         self._atoms = None  # stores all initial projections read so far from win file
 
+        self._atoms_names = None # names of atoms from atoms_cart or atoms_frac
+
         self._disentanglement_spin = None  # defines disentanglement separately for each spin
 
         self._dummy_projections_used = False  # defines whether or not dummy projections are in use
 
-        self._extra_par = {"num_zero": 0.01,                 # default values of additional parameters for
+        self._extra_par = {"num_zero": 0.01,                   # default values of additional parameters for
                            "verbosity": 2,                     # Wannier90Converter. They can be modified
                            "non_standard_corr_shells": False}  # by the user in case additional ASCII file is provided.
+
+        self._excluded_bands = None # stores list with excluded bands if such a list exists otherwise it is None
 
         if isinstance(filename, str):
             self._filename = filename
@@ -350,6 +356,8 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
         self._cell_cart = None  # cell lattice vectors in Cartesian coordinates in Angstrom units
 
         self._num_zero = None  # definition of a numerical zero
+
+        self._not_used = -1  # internal parameter to avoid magic numbers
 
         self._n_spin = None  # defines a spin dimension for DFT data,
         #                     it is 1 for a spin non-polarised, spin-orbit calculation
@@ -390,7 +398,14 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
                          # unit_cell_cart keyword is to check compatibility between checkpoint file and win file
                          "unit_cell_cart": None,
                          "num_wann": None,
-                         "num_bands": -1}
+                         "num_bands": self._DNF,
+                         # atoms_frac or atoms_cart for simpler definition of initial guesses
+                         "atoms_frac": self._DNF,
+                         "atoms_cart": self._DNF,
+                         # exclude_bands keyword is to check compatibility between checkpoint file and win file
+                         "exclude_bands": self._DNF,
+                         # kpoints keyword is to check compatibility between checkpoint file and win file
+                         "kpoints": None}
 
         # Repacks hdf file  if wanted:
         if isinstance(repacking, bool):
@@ -427,7 +442,8 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
         # parameters needed by both rerun and fresh run
         self._parameters = {"num_zero": self._num_zero,
                             "verbosity": self._verbosity,
-                            "ham_nkpt": self.ham_nkpt}
+                            "ham_nkpt": self.ham_nkpt,
+                            "non_standard_corr_shells": self._non_standard_corr_shells}
 
         self._h_to_triqs()
         self._get_density_required()
@@ -488,11 +504,12 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
                         "rot_mat": self.rot_mat,
                         "bz_weights": numpy.ones(self.n_k, numpy.float) / float(self.n_k),
                         "rot_mat_time_inv": [0 for i in range(self.n_shells)],
-                        "n_reps": -1,
-                        "dim_reps": -1,
+                        "n_reps": self._not_used,
+                        "dim_reps": self._not_used,
                         "FULL_H_R": self.FULL_H_R,
                         "Hamiltonian": self.H_k,
-                        "ham_nkpt": self.ham_nkpt  # converter crucial parameter
+                        "ham_nkpt": self.ham_nkpt,  # converter crucial parameter
+                        "non_standard_corr_shells": self._non_standard_corr_shells # converter crucial parameter
                        }
 
             # non-crucial parameters; they may change between reruns
@@ -596,6 +613,10 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
             else:
                 self.report_error("Invalid value of non_standard_corr_shells: true/false value was expected!")
 
+        if self._non_standard_corr_shells:
+            self.make_statement("Non-standard treatment of shells is enabled. All found shells will be treated as "
+                                "correlated shells.")
+
         # bcasting
         self._num_zero = bcast(self._num_zero)
         self._verbosity = bcast(self._verbosity)
@@ -607,29 +628,50 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
 
         The following keywords are read from win file:
 
+                *   begin atoms_cart
+                    ----------------
+                    ----------------
+                    ----------------
+                    end atoms_cart
+
+                *   begin atoms_frac
+                    ----------------
+                    ----------------
+                    ----------------
+                    end atoms_frac
+
+                *   begin kpoints
+                    -------------
+                    -------------
+                    -------------
+                    end kpoints
+
                 *   begin projections
                     -----------------
                     -----------------
                     end projections
 
-                *   mp_grid
-
-                *   hr_plot (has to be set to true)
-
-                *   num_wann
-
-                *   unit_cell_cart
-
-                *   num_bands (if it not present then no entanglement is assumed)
+                *   begin unit_cell_cart
+                    --------------------
+                    --------------------
+                    --------------------
+                    end unit_cell_cart
 
                 *   fermi_energy
 
-                *   spinors  (should be present only if  spin-orbit coupling calculations are performed)
+                *   hr_plot (has to be set to true)
 
-            For the explanation of each of the keywords please look at Wannier90 user guide.
+                *   mp_grid
 
+                *   num_bands (if it not present then no entanglement is assumed)
 
-        Extracts parameters from win file(s). Parameters extracted from data stored in filename.win file;
+                *   num_wann
+
+                *   spinors  (should be present only if spin-orbit coupling calculations are performed)
+
+        For the explanation of each of the keywords please look at Wannier90 user guide.
+
+        This function extracts parameters from win file(s). Parameters extracted from data stored in filename.win file:
 
             - chemical_potential: this parameter is equal to value of fermi_energy keyword.
               chemical_potential type: float
@@ -637,30 +679,43 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
             - n_k: this parameter is calculated from value of mp_grid keyword.
               n_k type: int
 
+            - k_point_mesh this parameter is extracted from the following block:
+
+                               begin kpoints
+                               -------------
+                               -------------
+                               end kpoints
+
             - shells: parameter shells is calculated form the following block:
 
-                               Begin Projections
-                                ---------------
-                                ---------------
-                                ---------------
-                               End Projections
+                                begin projections
+                                -----------------
+                                -----------------
+                                -----------------
+                                end projections
 
-                        in *.win file(s). At this stage for each shell attributes "atom", "dim", "l"
-                        are determined (sort is calculated in _h_to_triqs method).
+                      from *.win file(s). At this stage for each shell attributes "atom", "dim", "l"
+                      are determined (sort is calculated in _h_to_triqs method).
               shells type : list of dictionaries which values are of type int
 
             - SO:   defines whether or not we have spin-orbit calculations.  If filename.win is present and
                     inside of it there is keyword  spinors=true then SO=1, and  SO=0 otherwise.
               SO type: int
 
-            - SP:   defines whether we have spin-polarised or spin-less calculation. \n
+            - SP:   defines whether we have spin-polarised or spin-less calculation.
                     Possible values:
-                       If filename.win is present then SP=0,
-                       if filename_up.win and filename_down.win are both present then SP=1.
+
+                    *   If filename.win is present then SP=0,
+
+                    *   if filename_up.win and filename_down.win are both present then SP=1.
+
               SP type: int
 
-            While reading keywords from filename.win Fortran convention is honoured
-            (cases of  letters do not matter, symbol '!' starts a comment). In addition block
+            Keyword unit_cell_cart is used to make a comparison between win file and checkpoint file.
+            Only one of atoms_frac, atoms_cart should be defined in the win file. Also, calculation  runs if
+            both keywords atoms_frac and atoms_cart are not presented in the win file but then all initial guesses
+            have to be defined explicitly. While reading keywords from filename.win Fortran convention is honoured
+            (cases of letters do not matter, symbol '!' starts a comment). In addition block
             which starts from # is also considered a comment.
 
         """
@@ -729,16 +784,19 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
                 self.SP = 1
 
             # **** Calculates parameters for the converter based on the parameters from win file.
+            self._get_atom_names()
             self._get_shells()
             self._get_ham_nkpt()
+            self._get_kpoints()
             self._get_chemical_potential()
             self._get_cell_cart()
+            self._get_excluded_bands()
 
             self._n_spin = self.SP + 1 - self.SO
 
 
             self.n_shells = len(self.shells)
-            self.n_k = self.ham_nkpt[0] * self.ham_nkpt[1] * self.ham_nkpt[2]  # number of k-points
+
 
 
             if one_channel:
@@ -764,6 +822,9 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
         self._wannier_order = bcast(self._wannier_order)
         self._name2SpinChannel = bcast(self._name2SpinChannel)
         self._win_par = bcast(self._win_par)
+        self._atoms_names = bcast(self._atoms_names)
+        self._excluded_bands = bcast(self._excluded_bands)
+        self.k_point_mesh = bcast(self.k_point_mesh)
 
 
     def _get_spinors(self):
@@ -799,6 +860,64 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
             self.chemical_potential = float(self._win_par["fermi_energy"])
         except ValueError:
             self.report_error("Invalid value of fermi_energy! ")
+
+
+    def _get_kpoints(self):
+
+        k_points =[line for line in self._win_par["kpoints"].split("\n") if line.strip() != '']
+
+        dim = 3
+        self.k_point_mesh = numpy.zeros((self.n_k, dim), dtype=float)
+
+        if self.n_k != len(k_points):
+            self.report_error("Invalid value of k-points (%s)!" % k_points)
+
+        for k in range(self.n_k):
+
+            k_point = k_points[k].split()
+
+            try:
+                self.k_point_mesh[k, 0] = float(k_point[0])
+                self.k_point_mesh[k, 1] = float(k_point[1])
+                self.k_point_mesh[k, 2] = float(k_point[2])
+            except ValueError:
+                self.report_error("Invalid value of k-point (%s)!" % k_point)
+
+
+    def _get_excluded_bands(self):
+
+        if self._win_par["exclude_bands"] == self._DNF:
+            self._excluded_bands = None
+            return
+
+        self._excluded_bands = []
+        words = self._win_par["exclude_bands"].replace(",", " ").replace("-", " - ").split()
+        local_buffer = 0
+
+        for i, word in enumerate(words):
+            if local_buffer > 0:
+                local_buffer -= 1
+                continue
+
+            if word == "-":
+                try:
+                    begin = self._excluded_bands[-1] + 1
+                except IndexError:
+                    self.report_error("Invalid value of excluded band (%s) !" % words)
+
+                try:
+                    end = int(words[i + 1]) + 1  # we want to include also the last element
+                except ValueError:
+                    self.report_error("Invalid value of excluded band (%s)!" % words)
+
+                self._excluded_bands.extend(range(begin, end))
+
+                local_buffer += 1
+            else:
+                try:
+                    self._excluded_bands.append(int(word))
+                except ValueError:
+                    self.report_error("Invalid value of excluded band (%s)!" % words)
 
 
     def _get_cell_cart(self):
@@ -846,6 +965,45 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
         if not (len(self.ham_nkpt) == dim and all([self.ham_nkpt[i] > 0 for i in range(len(self.ham_nkpt))])):
             self.report_error("You have to define a proper k-mesh!")
 
+        self.n_k = self.ham_nkpt[0] * self.ham_nkpt[1] * self.ham_nkpt[2]  # number of k-points
+
+
+    def _get_atom_names(self):
+        """
+
+           Extracts names of atoms from atoms_cart or atoms_frac.
+
+        """
+        if self._win_par["atoms_cart"] != self._DNF and self._win_par["atoms_frac"] != self._DNF:
+
+            self.report_error("Only one of atoms_cart or atoms_frac can be defined in the win file!")
+
+        if self._win_par["atoms_cart"] != self._DNF:
+
+            atoms_block = "atoms_cart"
+
+        elif self._win_par["atoms_frac"] != self._DNF:
+
+            atoms_block = "atoms_frac"
+
+        # definition of "atoms_cart" or "atoms_frac" is not obligatory
+        else:
+            return
+
+
+        atoms_cord = self._win_par[atoms_block].split("\n")
+
+        if "ang" in atoms_cord[0].lower() or "bohr" in atoms_cord[0].lower():
+            atoms_cord.pop(0)
+
+        self._atoms_names = {}
+        for line in atoms_cord:
+            words = line.split()
+            if words[0] not in self._atoms_names:
+                 self._atoms_names[words[0]] = [words[1] + " " + words[2] + " " + words[3]]
+            else:
+                self._atoms_names[words[0]].append(words[1] + " " + words[2] + " " + words[3])
+
 
     def _get_shells(self):
         """
@@ -869,7 +1027,7 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
                  *  init_proj -- initial guess(es) for  MLWFs ,
 
                  *  some_stuff -- additional parameters like for example orientation of an
-                                  initial guess(es) for MLWFs (for example x=1,1,0). More about additional options for
+                                  initial guess for MLWFs (for example x=1,1,0). More about additional options for
                                   the MLWFs  initial guesses can be found in Wannier90 user guide.
 
             Everything before first ":" is treated as a name of site (a name of site is implemented as a string in
@@ -950,11 +1108,15 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
                O:s
                O:p
 
-            defines two shells on site called "O". First shell is s and the second p. They are mapped onto
-            the following shells (here shells means a keyword required by SumkDFT):
+            defines two shells on site called "O". First shell is s and the second p. The example above can also
+            be written as
+
+               O:s;p
+
+            Two last examples are mapped onto the following shells (here shells means a keyword required by SumkDFT):
 
                  shells = [{"dim":1, "atom":0, "l":0},
-                           {"dim":3, "atom":1, "l":1}]
+                           {"dim":3, "atom":0, "l":1}]
 
             In case few orbitals from the same shell are defined for the same site they are considered one shell. For
             example:
@@ -982,6 +1144,32 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
               shells = [{"dim":1, "atom":0, "l":2},
                         {"dim":1, "atom":1, "l":2}]
 
+
+            In all examples above all initial guesses are given explicitly. However, there exist also a simplified
+            way of defining initial guesses. In case bloc atoms_frac  or atoms_cart  is present in the win file one can
+            define initial guesses for MLWFs using only names of atoms. For example:
+
+
+            begin atoms_frac
+            Sr 0.0 0.0 0.0
+            V 0.5 0.5 0.5
+            O  0.5 0.5 0.0
+            O  0.5 0.0 0.5
+            O  0.0 0.5 0.5
+            end atoms_frac
+
+            Begin Projections
+            V:d
+            O:p
+            End Projections
+
+            defines five d initial guesses on atom V and three initial guesses on each of three oxygen atoms.The example
+            above is mapped onto the following shells (SumkDFT keyword):
+
+                shells = [{"dim":5, "atom":0, "l":2},
+                          {"dim":3, "atom":1, "l":1},
+                          {"dim":3, "atom":2, "l":1},
+                          {"dim":3, "atom":3, "l":1}]
         """
         lines = self._win_par["projections"].split("\n")
 
@@ -1011,12 +1199,18 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
                                   "The following format is accepted:\n"
                                   "Fe:dxy;dxz;dyz")
 
-        if ":" not in lines[0]: lines.pop(0)  # in case first line in the block is [units] remove it
+        if ":" not in lines[0]:
+            lines.pop(0)  # in case first line in the block is [units] remove it
 
         for line in lines:  # each line is a different atom, but atoms can repeat themselves
 
+            sites = [(line[:line.find(":")])]
+            atom_name = sites[0].strip()
 
-            label = (line[:line.find(":")])
+            if self._atoms_names is not None and atom_name in self._atoms_names:
+                sites = self._atoms_names[atom_name]
+
+
             begin = line.find(":") + 1  # here we add 1 because we want content after
 
             if ":" in line[begin:]:
@@ -1024,53 +1218,53 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
             else:
                 end = len(line)
 
-            projections = line[begin:end].split(";")
+            original_projections = line[begin:end].split(";")
+            for site in sites:
+                projections = deepcopy(original_projections)
+                if site not in self._atoms:
 
-            if label not in self._atoms:
+                    num_atom += 1
+                    num_shell += 1
+                    self._atoms[site] = {"num_atom": num_atom, "state": []}
+                    res = self._get_proj_l(input_proj=projections.pop(0), atom_site=site)
+                    temp_shells = [{"atom": num_atom, "dim": res["dim"], "l": res["l"]}]
 
-                num_atom += 1
-                num_shell += 1
-                self._atoms[label] = {"num_atom": num_atom, "state": []}
-                res = self._get_proj_l(input_proj=projections.pop(0), atom_name=label)
-                temp_shells = [{"atom": num_atom, "dim": res["dim"], "l": res["l"]}]
+                    wannier_order = [res["name"]]
+                    for proj in projections:
+                        res = self._get_proj_l(input_proj=proj, atom_site=site)
+                        l = res["l"]
+                        dim = res["dim"]
+                        found = False
+                        for i, item in enumerate(temp_shells):
+                            if l == item["l"]:
+                                item["dim"] += dim
+                                wannier_order[i].extend(res["name"])
+                                found = True
+                                break
+                        if not found:  # different shell on the same atom, with different l
+                            temp_shells.append({"atom": num_atom, "dim": dim, "l": l})
+                            wannier_order.append(res["name"])
 
-                wannier_order = [res["name"]]
-                for proj in projections:
-                    res = self._get_proj_l(input_proj=proj, atom_name=label)
-                    l = res["l"]
-                    dim = res["dim"]
-                    found = False
-                    for i, item in enumerate(temp_shells):
-                        if l == item["l"]:
-                            item["dim"] += dim
-                            wannier_order[i].extend(res["name"])
-                            found = True
-                            break
-                    if not found:  # different shell on the same atom, with different l
-                        temp_shells.append({"atom": num_atom, "dim": dim, "l": l})
-                        wannier_order.append(res["name"])
+                    self.shells.extend(temp_shells)
+                    self._wannier_order.extend(wannier_order)
 
-                self.shells.extend(temp_shells)
-                self._wannier_order.extend(wannier_order)
+                else:
 
-            else:
-
-                local_num_atom = self._atoms[label]["num_atom"]
-                for proj in projections:
-                    res = self._get_proj_l(input_proj=proj, atom_name=label)
-                    l = res["l"]
-                    dim = res["dim"]
-                    found = False
-                    for i, item in enumerate(self.shells):
-                        if l == item["l"] and item["atom"] == local_num_atom:
-                            item["dim"] += dim
-                            self._wannier_order[i].extend(res["name"])
-                            found = True
-                            break
-                    if not found:  # different shell on the same atom, with different l
-                        self.shells.extend({"atom": local_num_atom, "dim": dim, "l": l})
-                        self._wannier_order.extend(res["name"])
-
+                    local_num_atom = self._atoms[site]["num_atom"]
+                    for proj in projections:
+                        res = self._get_proj_l(input_proj=proj, atom_site=site)
+                        l = res["l"]
+                        dim = res["dim"]
+                        found = False
+                        for i, item in enumerate(self.shells):
+                            if l == item["l"] and item["atom"] == local_num_atom:
+                                item["dim"] += dim
+                                self._wannier_order[i].extend(res["name"])
+                                found = True
+                                break
+                        if not found:  # different shell on the same atom, with different l
+                            self.shells.extend({"atom": local_num_atom, "dim": dim, "l": l})
+                            self._wannier_order.extend(res["name"])
 
         # check if shells are reasonable
         for state in self.shells:
@@ -1120,14 +1314,14 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
             self.report_error("No correlated shells detected in the system!")
 
 
-    def _get_proj_l(self, input_proj=None, atom_name=None):
+    def _get_proj_l(self, input_proj=None, atom_site=None):
         """
         Returns attributes of the particular initial projection.
         :param input_proj: particular initial projection (initial guess for MLWFs) to be analysed.
         :type input_proj: str
 
-        :param atom_name: Name of atom from *.win file for which shells are to be found
-        :type atom_name: str
+        :param atom_site: Name of atom from *.win file for which shells are to be found
+        :type atom_site: str
 
         :return: l ,dim, name for  the given initial guess for MLWFs
         :rtype : dict (dictionary)
@@ -1186,7 +1380,7 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
                         name.append(state["name"])
 
                         # checks if the same projection not repeated
-                        self._is_unique_proj(atom_name=atom_name, state=state)
+                        self._is_unique_proj(atom_name=atom_site, state=state)
 
                         break
 
@@ -1211,7 +1405,7 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
                     name.append(state["name"])
 
                     # checks if the same projection not repeated
-                    self._is_unique_proj(atom_name=atom_name, state=state)
+                    self._is_unique_proj(atom_name=atom_site, state=state)
 
                     break
 
@@ -1227,7 +1421,7 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
                     dim = state["dim"]
                     name.append(state["name"])
                     # checks if the same projection not repeated
-                    self._is_unique_proj(atom_name=atom_name, state=state)
+                    self._is_unique_proj(atom_name=atom_site, state=state)
                     break
 
             if dim == 0:
@@ -1279,7 +1473,7 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
         :type dictionary: dict
         """
         try:
-            if dictionary["num_bands"] == -1:
+            if dictionary["num_bands"] == self._DNF:
                 return self.total_MLWF
             else:
                 return int(dictionary["num_bands"])
@@ -1644,7 +1838,6 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
         self.H_k = [[numpy.zeros((self.total_MLWF, self.total_MLWF), dtype=numpy.complex_)
                     for isp in range(self._n_spin)] for ikpt in range(self.n_k)]
 
-        self.__make_k_point_mesh()
         imag = 1j
         twopi = 2 * numpy.pi
 
@@ -1659,9 +1852,9 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
                     factor = (math.cos(rdotk) + imag * math.sin(rdotk)) / float(self.Vector_R_degeneracy[irpt])
 
                     self.H_k[ikpt][n_s][:, :] += factor * self.FULL_H_R[irpt][self.total_MLWF * n_s:
-                                                                             self.total_MLWF * (n_s + 1),
-                                                                             self.total_MLWF * n_s:
-                                                                             self.total_MLWF * (n_s + 1)]
+                                                                              self.total_MLWF * (n_s + 1),
+                                                                              self.total_MLWF * n_s:
+                                                                              self.total_MLWF * (n_s + 1)]
 
                 self.H_k[ikpt][n_s][:, :] = all_reduce(world, self.H_k[ikpt][n_s][:, :], lambda x_ham, y: x_ham + y)
 
@@ -1862,44 +2055,6 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
                        "Vector_R": Vector_R_down, "FULL_H_R": FULL_H_R, "ham_r": ham_r})
 
         return result
-
-
-    def __make_k_point_mesh(self):
-        """
-        Makes uniformly distributed k-point mesh.
-
-        """
-        if self.ham_nkpt[0] % 2:
-            i1min = - (self.ham_nkpt[0] - 1) / 2
-            i1max = (self.ham_nkpt[0] - 1) / 2
-        else:
-            i1min = -(self.ham_nkpt[0] / 2 - 1)
-            i1max = self.ham_nkpt[0] / 2
-
-        if self.ham_nkpt[1] % 2:
-            i2min = - (self.ham_nkpt[1] - 1) / 2
-            i2max = (self.ham_nkpt[1] - 1) / 2
-        else:
-            i2min = -(self.ham_nkpt[1] / 2 - 1)
-            i2max = self.ham_nkpt[1] / 2
-
-        if self.ham_nkpt[2] % 2:
-            i3min = - (self.ham_nkpt[2] - 1) / 2
-            i3max = (self.ham_nkpt[2] - 1) / 2
-
-        else:
-            i3min = -(self.ham_nkpt[2] / 2 - 1)
-            i3max = self.ham_nkpt[2] / 2
-        dimensions = 3
-        self.k_point_mesh = numpy.zeros((self.n_k, dimensions), dtype=numpy.float_)
-        n_kpt = 0
-        for i1 in range(i1min, i1max + 1):
-            for i2 in range(i2min, i2max + 1):
-                for i3 in range(i3min, i3max + 1):
-                    self.k_point_mesh[n_kpt, :] = [float(i1) / float(self.ham_nkpt[0]),
-                                                   float(i2) / float(self.ham_nkpt[1]),
-                                                   float(i3) / float(self.ham_nkpt[2])]
-                    n_kpt += 1
 
 
     def _is_unique_proj(self, atom_name=None, state=None):
@@ -2116,15 +2271,27 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
                     # number of excluded bands
                     pos += 1
                     try:
-                         chkpt_data["Number of exclude bands"] = int(lines[pos])
+                         chkpt_data["Number of excluded bands"] = int(lines[pos])
                     except ValueError:
                         self.report_warning("Invalid number of excluded bands in %s.chk.fmt!" % filename + err_msg)
                         self._produce_dummy_projections()
                         return
 
-                    for i in range(chkpt_data["Number of exclude bands"]):
+                    for i in range(chkpt_data["Number of excluded bands"]):
                         pos += 1
+                        if self._excluded_bands is not None:
+                            try:
+                                num = int(lines[pos])
+                            except ValueError:
+                                self.report_warning("Invalid value of excluded bands!" + err_msg)
+                                self._produce_dummy_projections()
+                                return
 
+                            if self._excluded_bands[i] != num:
+                                self.report_warning("Excluded bands in %s.win and %s.chk.fmt "
+                                                    "are inconsistent!" % (filename, filename) + err_msg)
+                                self._produce_dummy_projections()
+                                return
 
                     temp_array = numpy.zeros((dim, dim), dtype=numpy.float_)
                     # Real lattice
@@ -2200,9 +2367,24 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
                         return
 
 
-                    # k points, not used by the converter
+                    # k points
                     for i in range(chkpt_data["Number of kpoints"]):
-                         pos += 1
+                        pos += 1
+                        try:
+                            temp_l = lines[pos].split()
+                            line = [ float(temp_l[ii]) for ii in range(dim) ]
+                        except ValueError:
+                            self.report_warning("Invalid value of k-point in %s.chk.fmt!" %filename)
+                            self._produce_dummy_projections()
+                            return
+
+                        if not numpy.allclose(self.k_point_mesh[i, :], line, 1e-6, 1e-7):
+
+                            self.report_warning("Different k-point grid  in %s.win"
+                                        "  and in  %s.chk.fmt!" % (filename, filename) + err_msg)
+                            self._produce_dummy_projections()
+                            return
+
                     # nntot, not used by the converter
                     pos += 1
 
@@ -2785,8 +2967,8 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
                               "use_rotations": 1,
                               "rot_mat": self.rot_mat,
                               "rot_mat_time_inv": [0 for i in range(self.n_shells)],
-                              "n_reps": -1,  # not used
-                              "dim_reps": -1,  # not used
+                              "n_reps": self._not_used,  # not used
+                              "dim_reps": self._not_used,  # not used
                               "T": self.T,
                               "n_orbitals": self.n_orbitals,
                               "proj_mat": self.proj_mat,

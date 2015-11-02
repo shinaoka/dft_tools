@@ -69,7 +69,7 @@ del ar
 #                   'Number of bands': 3,
 #                   'Number of exclude bands': 27,
 #                   'Number of Wannier orbitals': 3,
-#                   'M-P grid': [8, 8, 8],
+#                   'mp_grid': [8, 8, 8],
 #                   'Number of kpoints': 512,
 #                   'Real lattice': numpy.array([[ 3.84209112,  0.        ,  0.        ],
 #                                                [ 0.        ,  3.84209112,  0.        ],

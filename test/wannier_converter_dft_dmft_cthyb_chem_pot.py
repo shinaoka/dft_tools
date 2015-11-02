@@ -29,7 +29,7 @@ h_field = 0.0
 chemical_potential = 12.5  # to speed up a benchmark
 prec_mu = 0.0001
 
-# remove SrVO3.h5 if it exists, in the benchmark we test scenario: calculation from scratch
+# remove wannier_converter_SrVO3.h5 if it exists, in the benchmark we test scenario: calculation from scratch
 if isfile(dft_filename + ".h5"):
     subprocess.call(["rm", dft_filename + ".h5"])
 
