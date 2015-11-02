@@ -77,6 +77,7 @@ class Wien2kConverter(ConverterTools):
         self.outputs_file = filename+'.outputs'
         self.pmat_file = filename+'.pmat'
         self.energy_file = filename+'.energy'
+        self.scf0_file = filename+'.scf0'
         self.scf2_file = filename+'.scf2'
         self.dft_subgrp = dft_subgrp
         self.symmcorr_subgrp = symmcorr_subgrp
@@ -622,6 +623,24 @@ class Wien2kConverter(ConverterTools):
         for it in things_to_save: ar[self.transp_subgrp][it] = locals()[it]
         del ar
 
+        
+        # Read No of independent atoms .scf0 file
+        ###################################################################
+        
+        if (os.path.exists(self.scf0_file)):
+            mpi.report("Reading input from %s..."%self.scf0_file)
+        
+            with open(self.scf0_file) as R:
+                try:
+                    while 1:
+                        temp = R.readline().strip().split()
+                        if (temp) and (temp[0] == ':NATO'):
+                            NATO = int(temp[2])
+                            break
+                except IOError:
+                    raise "convert_misc_input: reading file %s failed" %self.scf0_file
+
+
 
         # Read Fermi energy from .scf2 file
         ###################################################################
@@ -637,7 +656,7 @@ class Wien2kConverter(ConverterTools):
                             E_Fermi = float(temp[-1])
                             break
                 except IOError:
-                    raise "convert_misc_input: reading file %s failed" %self.struct_file
+                    raise "convert_misc_input: reading file %s failed" %self.scf2_file
 
         # Read energies below and above projective window from .energy file
         ###################################################################
@@ -653,56 +672,61 @@ class Wien2kConverter(ConverterTools):
                 files = [self.energy_file+'up', self.energy_file+'dn']
             if (SO == 1): # SO and SP can't be both 1
                 assert 0, "convert_transport_input: Reading energy file error! Check SP and SO!"
-    
-        # Determine the number of bands below and above the projection window
-        band_window_above = [None for isp in range(SP + 1 - SO)]
-        band_window_below = [None for isp in range(SP + 1 - SO)]
-        ar = HDFArchive(self.hdf_file,'r')
-        band_window = ar['dft_misc_input']['band_window']
-        energy_unit = ar['dft_input']['energy_unit']
-        del ar
-
-        for isp in range(self.n_spin_blocs):
-            band_window_above[isp] = numpy.zeros((n_k, 2), dtype=int) 
-            band_window_below[isp] = numpy.zeros((n_k, 2), dtype=int) 
-            for ik in range(n_k):
-                band_window_above[isp][ik,0] = band_window[isp][ik,1]+1 
-                band_window_above[isp][ik,1] = band_window_optics[isp][ik,1]
-                band_window_below[isp][ik,0] = band_window_optics[isp][ik,0]
-                band_window_below[isp][ik,1] = band_window[isp][ik,0]-1
-        n_bands_below =  numpy.max([band_window_below[isp][:,1] - band_window_below[isp][:,0] for isp in range(self.n_spin_blocs)]) + 1
-        n_bands_above =  numpy.max([band_window_above[isp][:,1] - band_window_above[isp][:,0] for isp in range(self.n_spin_blocs)]) + 1
         
-        hopping_below = numpy.zeros([n_k,self.n_spin_blocs,numpy.max(n_bands_below.clip(0)),numpy.max(n_bands_below.clip(0))],numpy.complex_)
-        hopping_above = numpy.zeros([n_k,self.n_spin_blocs,numpy.max(n_bands_above.clip(0)),numpy.max(n_bands_above.clip(0))],numpy.complex_)
+        # Check if files exist
+        files_ok = True
+        for f in files:
+            if not os.path.exists(f): files_ok = False
         
-        for isp, f in enumerate(files):
-            if not os.path.exists(f) : raise IOError, "convert_transport_input: File %s does not exist" %f
-            mpi.report("Reading input from %s..."%f)
+        if files_ok:
+            # Determine the number of bands below and above the projection window
+            band_window_above = [None for isp in range(SP + 1 - SO)]
+            band_window_below = [None for isp in range(SP + 1 - SO)]
+            ar = HDFArchive(self.hdf_file,'r')
+            band_window = ar['dft_misc_input']['band_window']
+            energy_unit = ar['dft_input']['energy_unit']
+            del ar
 
-            R = ConverterTools.read_fortran_file(self, f, {'D':'E','(':'',')':'',',':' '}, skip_lines = 6)
+            for isp in range(self.n_spin_blocs):
+                band_window_above[isp] = numpy.zeros((n_k, 2), dtype=int) 
+                band_window_below[isp] = numpy.zeros((n_k, 2), dtype=int) 
+                for ik in range(n_k):
+                    band_window_above[isp][ik,0] = band_window[isp][ik,1]+1 
+                    band_window_above[isp][ik,1] = band_window_optics[isp][ik,1]
+                    band_window_below[isp][ik,0] = band_window_optics[isp][ik,0]
+                    band_window_below[isp][ik,1] = band_window[isp][ik,0]-1
+            n_bands_below =  numpy.max([band_window_below[isp][:,1] - band_window_below[isp][:,0] for isp in range(self.n_spin_blocs)]) + 1
+            n_bands_above =  numpy.max([band_window_above[isp][:,1] - band_window_above[isp][:,0] for isp in range(self.n_spin_blocs)]) + 1
             
-            for ik in xrange(n_k):
-                for _ in xrange(5):
+            hopping_below = numpy.zeros([n_k,self.n_spin_blocs,numpy.max(n_bands_below.clip(0)),numpy.max(n_bands_below.clip(0))],numpy.complex_)
+            hopping_above = numpy.zeros([n_k,self.n_spin_blocs,numpy.max(n_bands_above.clip(0)),numpy.max(n_bands_above.clip(0))],numpy.complex_)
+            
+            for isp, f in enumerate(files):
+                mpi.report("Reading input from %s..."%f)
+
+                R = ConverterTools.read_fortran_file(self, f, {'D':'E','(':'',')':'',',':' '}, skip_lines = NATO*2)
+                
+                for ik in xrange(n_k):
+                    for _ in xrange(5):
+                        R.next()
+                    n_bands = int(R.next())
                     R.next()
-                n_bands = int(R.next())
-                R.next()
-                for ind_band in xrange(1,n_bands+1):
-                    if ind_band != R.next():
-                        assert 0, "convert_transport_input: Reading energy file error! Check SP and SO!"
-                    energy = R.next()
-                    if (ind_band >= band_window_below[isp][ik,0]) and (ind_band <= band_window_below[isp][ik,1]):
-                        hopping_below[ik,isp,ind_band-band_window_below[isp][ik,0],ind_band-band_window_below[isp][ik,0]] = (energy-E_Fermi) * energy_unit
-                    elif (ind_band >= band_window_above[isp][ik,0]) and (ind_band <= band_window_above[isp][ik,1]):
-                        hopping_above[ik,isp,ind_band-band_window_above[isp][ik,0],ind_band-band_window_above[isp][ik,0]] = (energy-E_Fermi) * energy_unit
-            R.close() # Reading done!
-        
-        ar = HDFArchive(self.hdf_file, 'a')
-        if not (self.transp_subgrp in ar): ar.create_group(self.transp_subgrp)
-        # The subgroup containing the data. If it does not exist, it is created. If it exists, the data is overwritten!!!
-        things_to_save = ['band_window_below', 'band_window_above','hopping_below','hopping_above']
-        for it in things_to_save: ar[self.transp_subgrp][it] = locals()[it]
-        del ar
+                    for ind_band in xrange(1,n_bands+1):
+                        if ind_band != R.next():
+                            assert 0, "convert_transport_input: Reading energy file error! Check SP and SO!"
+                        energy = R.next()
+                        if (ind_band >= band_window_below[isp][ik,0]) and (ind_band <= band_window_below[isp][ik,1]):
+                            hopping_below[ik,isp,ind_band-band_window_below[isp][ik,0],ind_band-band_window_below[isp][ik,0]] = (energy-E_Fermi) * energy_unit
+                        elif (ind_band >= band_window_above[isp][ik,0]) and (ind_band <= band_window_above[isp][ik,1]):
+                            hopping_above[ik,isp,ind_band-band_window_above[isp][ik,0],ind_band-band_window_above[isp][ik,0]] = (energy-E_Fermi) * energy_unit
+                R.close() # Reading done!
+            
+            ar = HDFArchive(self.hdf_file, 'a')
+            if not (self.transp_subgrp in ar): ar.create_group(self.transp_subgrp)
+            # The subgroup containing the data. If it does not exist, it is created. If it exists, the data is overwritten!!!
+            things_to_save = ['band_window_below', 'band_window_above','hopping_below','hopping_above']
+            for it in things_to_save: ar[self.transp_subgrp][it] = locals()[it]
+            del ar
     
     def convert_symmetry_input(self, orbits, symm_file, symm_subgrp, SO, SP):
         """
