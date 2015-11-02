@@ -641,7 +641,7 @@ class SumkDFTTools(SumkDFT):
         # Define mesh for Green's function and in the specified energy window
         if (with_Sigma == True):
             self.omega = numpy.array([round(x.real,12) for x in self.Sigma_imp_w[0].mesh])
-            mesh = None
+            mesh = self.Sigma_imp_w[0].mesh
             mu = self.chemical_potential
             n_om = len(self.omega)
             mpi.report("Using omega mesh provided by Sigma!")
