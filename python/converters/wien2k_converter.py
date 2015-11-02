@@ -645,6 +645,9 @@ class Wien2kConverter(ConverterTools):
         # Read Fermi energy from .scf2 file
         ###################################################################
         
+        if SP == 1:
+            self.scf2_file = self.scf2_file +'up'
+        
         if (os.path.exists(self.scf2_file)):
             mpi.report("Reading input from %s..."%self.scf2_file)
         
@@ -687,7 +690,9 @@ class Wien2kConverter(ConverterTools):
             energy_unit = ar['dft_input']['energy_unit']
             del ar
 
-            for isp in range(self.n_spin_blocs):
+            n_spin_blocs = SP + 1 - SO
+            
+            for isp in range(n_spin_blocs):
                 band_window_above[isp] = numpy.zeros((n_k, 2), dtype=int) 
                 band_window_below[isp] = numpy.zeros((n_k, 2), dtype=int) 
                 for ik in range(n_k):
@@ -695,11 +700,11 @@ class Wien2kConverter(ConverterTools):
                     band_window_above[isp][ik,1] = band_window_optics[isp][ik,1]
                     band_window_below[isp][ik,0] = band_window_optics[isp][ik,0]
                     band_window_below[isp][ik,1] = band_window[isp][ik,0]-1
-            n_bands_below =  numpy.max([band_window_below[isp][:,1] - band_window_below[isp][:,0] for isp in range(self.n_spin_blocs)]) + 1
-            n_bands_above =  numpy.max([band_window_above[isp][:,1] - band_window_above[isp][:,0] for isp in range(self.n_spin_blocs)]) + 1
+            n_bands_below =  numpy.max([band_window_below[isp][:,1] - band_window_below[isp][:,0] for isp in range(n_spin_blocs)]) + 1
+            n_bands_above =  numpy.max([band_window_above[isp][:,1] - band_window_above[isp][:,0] for isp in range(n_spin_blocs)]) + 1
             
-            hopping_below = numpy.zeros([n_k,self.n_spin_blocs,numpy.max(n_bands_below.clip(0)),numpy.max(n_bands_below.clip(0))],numpy.complex_)
-            hopping_above = numpy.zeros([n_k,self.n_spin_blocs,numpy.max(n_bands_above.clip(0)),numpy.max(n_bands_above.clip(0))],numpy.complex_)
+            hopping_below = numpy.zeros([n_k,n_spin_blocs,numpy.max(n_bands_below.clip(0)),numpy.max(n_bands_below.clip(0))],numpy.complex_)
+            hopping_above = numpy.zeros([n_k,n_spin_blocs,numpy.max(n_bands_above.clip(0)),numpy.max(n_bands_above.clip(0))],numpy.complex_)
             
             for isp, f in enumerate(files):
                 mpi.report("Reading input from %s..."%f)
