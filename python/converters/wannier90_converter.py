@@ -889,7 +889,7 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
             "f=0.000000000,0.000000000,0.000000000". It is mapped onto the following shells
             (here shells means a keyword required by SumkDFT):
 
-               shells =  [["dim":1, "atom":0, "l":2]]
+               shells =  [{"dim":1, "atom":0, "l":2}]
 
             A name of site uniquely defines a site (it is treated as ID of a site). For example:
 
@@ -909,9 +909,9 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
 
             The example above is mapped onto the following shells (SumkDFT keyword):
 
-                       shells = [["dim":1, "atom":0, "l":2],
-                                 ["dim":1, "atom":1, "l":2],
-                                 ["dim":1, "atom":2, "l":2]]).
+                       shells = [{"dim":1, "atom":0, "l":2},
+                                 {"dim":1, "atom":1, "l":2},
+                                 {"dim":1, "atom":2, "l":2}]
 
             All formats supported by Wannier90 are also supported by the interface. For example one site called C
             on which there are three MLWFs with p character (so p is a valid initial guess) can be defined as:
@@ -943,7 +943,7 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
 
             Each of five equivalent definitions is mapped by the interface to the following shells (SumkDFT keyword):
 
-                  shells = [["dim":3, "atom":0, "l":1]]
+                  shells = [{"dim":3, "atom":0, "l":1}]
 
             On one site there can be defined more than one shell. For example:
 
@@ -953,8 +953,8 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
             defines two shells on site called "O". First shell is s and the second p. They are mapped onto
             the following shells (here shells means a keyword required by SumkDFT):
 
-                 shells = [["dim":1, "atom":0, "l":0],
-                           ["dim":3, "atom":1, "l":1]]
+                 shells = [{"dim":1, "atom":0, "l":0},
+                           {"dim":3, "atom":1, "l":1}]
 
             In case few orbitals from the same shell are defined for the same site they are considered one shell. For
             example:
@@ -967,7 +967,7 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
 
             are considered one d  shell on site called Fe. It is mapped onto the following shells (SumkDFT keyword)
 
-               shells = [["dim":5, "atom":0, "l":2]]
+               shells = [{"dim":5, "atom":0, "l":2}]
 
             In general, letter cases of data in *win file do not matter. However, there is one exception. The letter
             cases of sites matter. For example:
@@ -979,8 +979,8 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
             defines two different initial guesses for MLWF on two different sites: site Fe and site fe. They are mapped
             onto the following shells (SumkDFT keyword):
 
-              shells = [["dim":1, "atom":0, "l":2],
-                        ["dim":1, "atom":1, "l":2]]
+              shells = [{"dim":1, "atom":0, "l":2},
+                        {"dim":1, "atom":1, "l":2}]
 
         """
         lines = self._win_par["projections"].split("\n")
