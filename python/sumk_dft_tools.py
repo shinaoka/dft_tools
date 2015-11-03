@@ -641,7 +641,6 @@ class SumkDFTTools(SumkDFT):
         # Define mesh for Green's function and in the specified energy window
         if (with_Sigma == True):
             self.omega = numpy.array([round(x.real,12) for x in self.Sigma_imp_w[0].mesh])
-            mesh = self.Sigma_imp_w[0].mesh
             mu = self.chemical_potential
             n_om = len(self.omega)
             mpi.report("Using omega mesh provided by Sigma!")
@@ -670,7 +669,6 @@ class SumkDFTTools(SumkDFT):
             assert energy_window is not None, "transport_distribution: Energy window needed to calculate transport distribution!"
             assert broadening != 0.0 and broadening is not None, "transport_distribution: Broadening necessary to calculate transport distribution!"
             self.omega = numpy.linspace(energy_window[0]-max(Om_mesh),energy_window[1]+max(Om_mesh),n_om)
-            mesh = [energy_window[0]-max(Om_mesh), energy_window[1]+max(Om_mesh), n_om]
             mu = 0.0
 
         # Define mesh for optic conductivity
@@ -710,7 +708,7 @@ class SumkDFTTools(SumkDFT):
         ikarray = numpy.array(range(self.n_k))
         for ik in mpi.slice_array(ikarray):
             # Calculate G_w  for ik and initialize A_kw
-            G_w = copy.deepcopy(self.lattice_gf(ik, mu, iw_or_w="w", beta=beta, broadening=broadening, mesh=mesh, with_Sigma=with_Sigma))
+            G_w = copy.deepcopy(self.lattice_gf(ik, mu, iw_or_w="w", beta=beta, broadening=broadening, mesh=[self.omega[0],self.omega[-1],n_om], with_Sigma=with_Sigma))
             A_kw = [numpy.zeros((self.n_orbitals[ik][isp], self.n_orbitals[ik][isp], n_om), dtype=numpy.complex_) 
                             for isp in range(n_inequiv_spin_blocks)]
             
@@ -726,7 +724,7 @@ class SumkDFTTools(SumkDFT):
                 self.hopping = copy.deepcopy(self.hopping_above)
                 self.n_orbitals = copy.deepcopy(self.n_orbitals_above)
 
-                G_w_above = copy.deepcopy(self.lattice_gf(ik, mu, iw_or_w="w", beta=beta, broadening=broadening_uncorr, mesh=mesh, with_Sigma=False))
+                G_w_above = copy.deepcopy(self.lattice_gf(ik, mu, iw_or_w="w", beta=beta, broadening=broadening_uncorr, mesh=[self.omega[0],self.omega[-1],n_om], with_Sigma=False))
                 
                 A_kw_below = [numpy.zeros((self.n_orbitals_below[ik,isp], self.n_orbitals_below[ik,isp], n_om), dtype=numpy.complex_) 
                                                     for isp in range(n_inequiv_spin_blocks)]
@@ -734,7 +732,7 @@ class SumkDFTTools(SumkDFT):
                 self.hopping = copy.deepcopy(self.hopping_below)
                 self.n_orbitals = copy.deepcopy(self.n_orbitals_below)
                 
-                G_w_below = copy.deepcopy(self.lattice_gf(ik, mu, iw_or_w="w", beta=beta, broadening=broadening_uncorr, mesh=mesh, with_Sigma=False))
+                G_w_below = copy.deepcopy(self.lattice_gf(ik, mu, iw_or_w="w", beta=beta, broadening=broadening_uncorr, mesh=[self.omega[0],self.omega[-1],n_om], with_Sigma=False))
            
                 self.hopping = copy.deepcopy(hopping_save)
                 self.n_orbitals = copy.deepcopy(n_orbitals_save)
