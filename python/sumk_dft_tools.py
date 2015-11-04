@@ -768,7 +768,7 @@ class SumkDFTTools(SumkDFT):
                 b_min = max(self.band_window[isp][ik, 0], self.band_window_optics[isp][ik, 0])
                 b_max = min(self.band_window[isp][ik, 1], self.band_window_optics[isp][ik, 1])
                 A_i = slice(b_min - self.band_window[isp][ik, 0], b_max - self.band_window[isp][ik, 0] + 1)
-                v_i = slice(b_min - self.n_orbitals_optics[ik,isp])
+                v_i = slice(b_min - self.band_window_optics[isp][ik, 0], b_max - self.band_window_optics[isp][ik, 0] + 1)
                
                # uncorrelated bands
                 if (include_uncorr == True):
