@@ -47,7 +47,7 @@ def benchmark(filename=None):
         shell["sort"] = i
 
     # evaluates correlated shells
-    converter._get_corr_shells()
+    converter._set_corr_shells()
 
     # evaluates number of correlated shells
     converter.n_corr_shells = len(converter.corr_shells)
@@ -57,7 +57,7 @@ def benchmark(filename=None):
     converter.n_inequiv_corr_shells, converter.corr_to_inequiv, converter.inequiv_to_corr = converter.det_shell_equivalence(corr_shells=converter.corr_shells)
 
     # evaluates T according to the order of initial projections found in *win file
-    converter._get_T()
+    converter._set_T()
 
     # shortens name of the directory in hdf file
     folder_name = filename.replace("wannier_converter", "").strip()

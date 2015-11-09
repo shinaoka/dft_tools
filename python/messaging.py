@@ -720,7 +720,7 @@ class Check(Report):
                 all([isinstance(key, str) for key in t]) and
                 sorted(t) == sorted(x.keys()) and
                 all([isinstance(x[key], int) for key in x]) and
-                x["dim"] <= (x["l"] * 2 + 1))
+                x["dim"] <= ((x["l"] * 2 + 1)*(1 + self.SO)))
 
 
     def check_n_k(self, n_k=None):

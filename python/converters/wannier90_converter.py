@@ -99,12 +99,12 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
 
             - seedname.chk.fmt:
 
-                * If seedname.chk.fmt is not present, dummy projections in the
+                * If seedname.chk.fmt is not present, simpler projections in the
                   form of rectangular matrices, each with a block of the identity matrix
                   which corresponds to the given correlated shell is calculated.
 
                 * If a number of shells is larger than a number of correlated shells  then seedname.chk.fmt
-                  is neglected and dummy projections are always built.
+                  is neglected and simpler projections are always built.
 
                 * Otherwise projections basing on data from  seedname.chk.fmt are constructed.
 
@@ -146,13 +146,13 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
             - seedname_up.chk.fmt, seedname_down.chk.fmt:
 
                 * In case of spin-polarised calculations if any of seedname*.chk.fmt
-                  files is not present then dummy projectors are constructed.
+                  files is not present then simpler projectors are constructed.
 
                 * Input data from win files is compared against data from  checkpoint files. If there is any
                   discrepancy an abort signal is sent.
 
 
-        In case dummy projections are built, H_k becomes hopping integrals.
+        In case simpler projections are built, H_k becomes hopping integrals.
 
         Spin-orbit calculations: status
             As it comes to spin-orbit coupling at the moment only the case, in which there is the same number
@@ -327,7 +327,7 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
 
         self._disentanglement_spin = None  # defines disentanglement separately for each spin
 
-        self._dummy_projections_used = False  # defines whether or not dummy projections are in use
+        self._simpler_projections_used = False  # defines whether or not simpler projections are in use
 
         self._extra_par = {"num_zero": 0.01,                   # default values of additional parameters for
                            "verbosity": 2,                     # Wannier90Converter. They can be modified
@@ -360,10 +360,14 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
         self._not_used = -1  # internal parameter to avoid magic numbers
 
         self._n_spin = None  # defines a spin dimension for DFT data,
-        #                     it is 1 for a spin non-polarised, spin-orbit calculation
-        #                     and 2 for a spin-polarised calculation
+                             # it is 1 for a spin non-polarised, spin-orbit calculation
+                             # and 2 for a spin-polarised calculation
 
         self._parameters = {}  # parameters specific to Wannier90Converter
+
+        self._soc_arrangement = None # in case of spin-orbit coupling calculations it stores additional information
+                                     # about the order of spinors which is used to proper rearrange
+                                     # U matrices and the Hamiltonian content
 
         # self._SumkDFT:  folder in hdf file where dft input data is stored (both SumkDFT and Wannier90Converter)
 
@@ -446,7 +450,7 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
                             "non_standard_corr_shells": self._non_standard_corr_shells}
 
         self._h_to_triqs()
-        self._get_density_required()
+        self._set_density_required()
 
         if not self._all_read:  # calculation from scratch
 
@@ -458,15 +462,14 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
                 ar.create_group(self._SumkDFT)
                 del ar
 
-            self._get_T()
+            self._set_T()
             self._produce_projections()
 
             # bcasting
-            self.proj_mat = bcast(self.proj_mat)
-            self.n_orbitals = bcast(self.n_orbitals)
-            self.total_Bloch = bcast(self.total_Bloch)
-            self._dummy_projections_used = bcast(self._dummy_projections_used)
-            self._u_matrix_full = bcast(self._u_matrix_full)
+            things_to_broadcast = ["proj_mat", "n_orbitals", "total_Bloch", "_simpler_projections_used",
+                                   "_u_matrix_full"]
+
+            for it in things_to_broadcast: setattr(self, it, bcast(getattr(self, it)))
 
             self._produce_hopping()
             self._SumkDFT_par()
@@ -618,9 +621,9 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
                                 "correlated shells.")
 
         # bcasting
-        self._num_zero = bcast(self._num_zero)
-        self._verbosity = bcast(self._verbosity)
-        self._non_standard_corr_shells = bcast(self._non_standard_corr_shells)
+        things_to_broadcast = ["_num_zero", "_verbosity", "_non_standard_corr_shells"]
+
+        for it in things_to_broadcast: setattr(self, it, bcast(getattr(self, it)))
 
 
     def _read_win_file(self):
@@ -740,9 +743,9 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
 
                 reader.read_ASCII_fortran_file(file_to_read=self._filename + ".win", default_dic=self._win_par)
                 self._check_hr_plot(filename=self._filename + ".win", dictionary=self._win_par)
-                self._get_spinors()
-                self._get_total_MLWF()
-                self.total_Bloch = self._get_num_bands(dictionary=self._win_par)
+                self._set_spinors()
+                self._set_total_MLWF()
+                self.total_Bloch = self._set_num_bands(dictionary=self._win_par)
                 self._disentanglement_spin[0] = (self.total_MLWF != self.total_Bloch)
                 self._total_Bloch_spin[0] = self.total_Bloch
 
@@ -766,9 +769,9 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
                                           "' in %s_up.win file " % self._filename +
                                           " and value '" + temp_par[entry] + "' in %s_down.win file." % self._filename)
 
-                self._get_total_MLWF()
-                BlochUp = self._get_num_bands(dictionary=self._win_par)
-                BlochDown = self._get_num_bands(dictionary=temp_par)
+                self._set_total_MLWF()
+                BlochUp = self._set_num_bands(dictionary=self._win_par)
+                BlochDown = self._set_num_bands(dictionary=temp_par)
 
                 # it is assumed that for both spin channels the same number of MLWFs is constructed
                 # for each spin channel disentanglement is monitored independently
@@ -784,13 +787,13 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
                 self.SP = 1
 
             # **** Calculates parameters for the converter based on the parameters from win file.
-            self._get_atom_names()
-            self._get_shells()
-            self._get_ham_nkpt()
-            self._get_kpoints()
-            self._get_chemical_potential()
-            self._get_cell_cart()
-            self._get_excluded_bands()
+            self._set_atom_names()
+            self._set_shells()
+            self._set_ham_nkpt()
+            self._set_kpoints()
+            self._set_chemical_potential()
+            self._set_cell_cart()
+            self._set_excluded_bands()
 
             self._n_spin = self.SP + 1 - self.SO
 
@@ -807,27 +810,15 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
                                     "files has been read." % (self._filename, self._filename))
 
         # bcasting
-        self.shells = bcast(self.shells)
-        self.n_shells = bcast(self.n_shells)
-        self.ham_nkpt = bcast(self.ham_nkpt)
-        self.n_k = bcast(self.n_k)
-        self.SO = bcast(self.SO)
-        self.SP = bcast(self.SP)
-        self._n_spin = bcast(self._n_spin)
-        self._disentanglement_spin = bcast(self._disentanglement_spin)
-        self.total_Bloch = bcast(self.total_Bloch)
-        self._total_Bloch_spin = bcast(self._total_Bloch_spin)
-        self.total_MLWF = bcast(self.total_MLWF)
-        self.chemical_potential = bcast(self.chemical_potential)
-        self._wannier_order = bcast(self._wannier_order)
-        self._name2SpinChannel = bcast(self._name2SpinChannel)
-        self._win_par = bcast(self._win_par)
-        self._atoms_names = bcast(self._atoms_names)
-        self._excluded_bands = bcast(self._excluded_bands)
-        self.k_point_mesh = bcast(self.k_point_mesh)
+        things_to_broadcast = ["shells", "n_shells", "ham_nkpt", "n_k", "SO", "SP", "_n_spin", "_disentanglement_spin",
+                               "total_Bloch", "_total_Bloch_spin", "total_MLWF", "chemical_potential", "_wannier_order",
+                               "_name2SpinChannel", "_win_par", "_atoms_names", "_excluded_bands", "k_point_mesh",
+                               "_soc_arrangement"]
+
+        for it in things_to_broadcast: setattr(self, it, bcast(getattr(self, it)))
 
 
-    def _get_spinors(self):
+    def _set_spinors(self):
         """
         Calculates spinors from data which was extracted from *.win file. Sets value of SO.
 
@@ -849,7 +840,7 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
             self.SP = 0
 
 
-    def _get_chemical_potential(self):
+    def _set_chemical_potential(self):
 
         """
         Calculates initial guess for chemical potential from data which was extracted from *.win file.
@@ -862,7 +853,7 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
             self.report_error("Invalid value of fermi_energy! ")
 
 
-    def _get_kpoints(self):
+    def _set_kpoints(self):
 
         k_points =[line for line in self._win_par["kpoints"].split("\n") if line.strip() != '']
 
@@ -884,7 +875,7 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
                 self.report_error("Invalid value of k-point (%s)!" % k_point)
 
 
-    def _get_excluded_bands(self):
+    def _set_excluded_bands(self):
 
         if self._win_par["exclude_bands"] == self._DNF:
             self._excluded_bands = None
@@ -920,7 +911,7 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
                     self.report_error("Invalid value of excluded band (%s)!" % words)
 
 
-    def _get_cell_cart(self):
+    def _set_cell_cart(self):
         """
 
         Calculates lattice vectors.
@@ -945,7 +936,7 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
             self._cell_cart *= bohr2ang
 
 
-    def _get_ham_nkpt(self):
+    def _set_ham_nkpt(self):
         """
         Calculates vectors with 3 elements which defines k-mesh
         from data which was extracted from *.win file.
@@ -968,7 +959,7 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
         self.n_k = self.ham_nkpt[0] * self.ham_nkpt[1] * self.ham_nkpt[2]  # number of k-points
 
 
-    def _get_atom_names(self):
+    def _set_atom_names(self):
         """
 
            Extracts names of atoms from atoms_cart or atoms_frac.
@@ -1005,7 +996,7 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
                 self._atoms_names[words[0]].append(words[1] + " " + words[2] + " " + words[3])
 
 
-    def _get_shells(self):
+    def _set_shells(self):
         """
 
         Calculates shells basing on the
@@ -1281,7 +1272,21 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
                 self.report_error("Wrong structure of shells!")
 
 
-    def _get_corr_shells(self):
+        # spin-orbit coupling case: scenario in which number of spin up channels and spin down channels is the same
+        # (the only scenario for spin-orbit coupling supported at the moment)
+        if self.SO == 1:
+            self._soc_arrangement =  {}
+            total_orb = 0
+            for state in self.shells:
+                orb = state["dim"]
+                for n in range(orb):
+                    self._soc_arrangement[n + total_orb] = 2 * n + total_orb
+                    self._soc_arrangement[n + total_orb + orb] = 2 * n + 1 + total_orb
+                total_orb += orb * 2
+                state["dim"] *=  2  # number of all spinors (up and down channels)
+
+
+    def _set_corr_shells(self):
 
         """
 
@@ -1436,7 +1441,7 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
         return {"l": l, "dim": dim, "name": name}
 
 
-    def _get_total_MLWF(self):
+    def _set_total_MLWF(self):
         """
         Converts number of MLWFs in the form of string from *.win file to Wannier90Converter attribute: total_MLWF.
         """
@@ -1463,7 +1468,7 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
             self.report_error("No valid 'hr_plot' keyword was found in %s!" % filename)
 
 
-    def _get_num_bands(self, dictionary=None):
+    def _set_num_bands(self, dictionary=None):
 
         """
         Converts number of Bloch states in the form of string from *.win
@@ -1481,7 +1486,7 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
             self.report_error("no valid num_bands keyword in the dictionary!")
 
 
-    def _get_T(self):
+    def _set_T(self):
         """
         Determines T for all inequivalent correlated shells.
         """
@@ -1634,7 +1639,7 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
         return T
 
 
-    def _get_density_required(self):
+    def _set_density_required(self):
         """
         Calculates a required occupancy of the local Hamiltonian basing on the Fermi
         energy from *.win file and H_k.
@@ -1703,24 +1708,18 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
 
 
         # in case of spin-orbit coupling we have to rearrange  "ham_r" and "FULL_H_R":
-        # 1_up 1_down 2_up 2_down ..... n_up n_down   to
-        # 1_up 2_up ....n_up 1_down 2_down ..... n_down
-
         if self.SO == 1:
 
             temp_full_H_R = deepcopy(self.FULL_H_R)
             temp_ham_r = deepcopy(ham_r)
 
-            num_wann_channel = self.total_MLWF / 2
-            ind = range(0, self.total_MLWF, 2)
-
-            for ii, ind_i in enumerate(ind):
-                for jj, ind_j in enumerate(ind):
+            for ind_i in range(self.total_MLWF):
+                ordered_i = self._soc_arrangement[ind_i]
+                for ind_j in range(self.total_MLWF):
+                    ordered_j = self._soc_arrangement[ind_j]
                     for irpt in range(self.n_k):
-                        self.FULL_H_R[irpt][ii, jj] = temp_full_H_R[irpt][ind_i, ind_j]
-                        self.FULL_H_R[irpt][ii + num_wann_channel, jj + num_wann_channel] = temp_full_H_R[irpt][ind_i + 1, ind_j + 1]
-                    ham_r[ii, jj] = temp_ham_r[ind_i, ind_j]
-                    ham_r[ii + num_wann_channel, jj + num_wann_channel] = temp_ham_r[ind_i + 1, ind_j + 1]
+                       self.FULL_H_R[irpt][ind_i, ind_j] = temp_full_H_R[irpt][ordered_i, ordered_j]
+                    ham_r[ind_i, ind_j] = temp_ham_r[ordered_i, ordered_j]
                     
                     
             del temp_full_H_R
@@ -1758,7 +1757,7 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
             total_orb += n_orb
 
         # 3)  Finds correlated shells
-        self._get_corr_shells()
+        self._set_corr_shells()
 
 
         # Determines the number of inequivalent correlated shells (taken from ConverterTools)
@@ -1814,15 +1813,9 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
 
         del local_shells
 
-        if self._win_par["spinors"].lower() == "true" or self._win_par["spinors"].lower() == "t":
-            # in case of spin-orbit  num_wann = 2 * trial projections are provided
-            if self.total_MLWF != sum([sh['dim'] for sh in self.shells]) * 2:
 
-                self.report_error("Wrong block structure of input Hamiltonian, correct it please!")
-        else:
-            if self.total_MLWF != sum([sh['dim'] for sh in self.shells]):
-
-                self.report_error("Wrong block structure of input Hamiltonian, correct it please!")
+        if self.total_MLWF != sum([sh['dim'] for sh in self.shells]):
+            self.report_error("Wrong block structure of input Hamiltonian, correct it please!")
 
         self.rot_mat = [numpy.zeros((self.corr_shells[icrsh]['dim'], self.corr_shells[icrsh]['dim']),
                                     numpy.complex_) for icrsh in range(self.n_corr_shells)]
@@ -2181,10 +2174,10 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
         self._u_matrix_opt = None
 
 
-    def _set_proj_mat_dummy(self):
+    def _set_proj_mat_simpler(self):
         """
-        Redefines the shape of projection matrices in case dummy projections are used.
-        In scenario  dummy projections are used number of MLWFs and Bloch states is assumed to be the same.
+        Redefines the shape of projection matrices in case simpler projections are used.
+        In scenario  simpler projections are used number of MLWFs and Bloch states is assumed to be the same.
         """
         
         self.total_Bloch = self.total_MLWF
@@ -2233,7 +2226,7 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
         :type filename:     str
 
         """
-        err_msg = """Invalid  %s.chk.fmt! Dummy projections will be used in the calculation.""" % filename
+        err_msg = """Invalid  %s.chk.fmt! Simpler projections will be used in the calculation.""" % filename
 
         chkpt_data = {}
         dim = 3
@@ -2259,13 +2252,13 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
                          chkpt_data["Number of bands"] = int(lines[pos])
                     except ValueError:
                         self.report_warning("Invalid number of bands in %s.chk.fmt!" % filename + err_msg)
-                        self._produce_dummy_projections()
+                        self._produce_simpler_projections()
                         return
 
                     if self._total_Bloch_spin[self._name2SpinChannel[filename]] != chkpt_data["Number of bands"]:
                         self.report_warning("Different number of bands in "
                                             "%s.win  and in  %s.chk.fmt!" % (filename, filename) + err_msg)
-                        self._produce_dummy_projections()
+                        self._produce_simpler_projections()
                         return
 
                     # number of excluded bands
@@ -2274,7 +2267,7 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
                          chkpt_data["Number of excluded bands"] = int(lines[pos])
                     except ValueError:
                         self.report_warning("Invalid number of excluded bands in %s.chk.fmt!" % filename + err_msg)
-                        self._produce_dummy_projections()
+                        self._produce_simpler_projections()
                         return
 
                     for i in range(chkpt_data["Number of excluded bands"]):
@@ -2284,13 +2277,13 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
                                 num = int(lines[pos])
                             except ValueError:
                                 self.report_warning("Invalid value of excluded bands!" + err_msg)
-                                self._produce_dummy_projections()
+                                self._produce_simpler_projections()
                                 return
 
                             if self._excluded_bands[i] != num:
                                 self.report_warning("Excluded bands in %s.win and %s.chk.fmt "
                                                     "are inconsistent!" % (filename, filename) + err_msg)
-                                self._produce_dummy_projections()
+                                self._produce_simpler_projections()
                                 return
 
                     temp_array = numpy.zeros((dim, dim), dtype=numpy.float_)
@@ -2300,7 +2293,7 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
                         temp = lines[pos].split()
                         if len(temp) != dim2:
                             self.report_warning("Invalid real lattice matrix in %s.chk.fmt!" % filename + err_msg)
-                            self._produce_dummy_projections()
+                            self._produce_simpler_projections()
                             return
 
                         for j in range(dim):
@@ -2310,13 +2303,13 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
 
                     except ValueError:
                           self.report_warning("Invalid real lattice matrix in %s.chk.fmt!" % filename + err_msg)
-                          self._produce_dummy_projections()
+                          self._produce_simpler_projections()
                           return
 
                     if not numpy.allclose(chkpt_data["Real lattice"], self._cell_cart):
                         self.report_warning("Real lattice matrix from  %s.chk.fmt differs from that "
                                             "found in %s.win file!" % (filename, filename) + err_msg)
-                        self._produce_dummy_projections()
+                        self._produce_simpler_projections()
                         return
 
                     del temp_array
@@ -2330,14 +2323,14 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
                         chkpt_data["Number of kpoints"] = int(lines[pos])
                     except ValueError:
                         self.report_warning("Invalid number of kpoints in %s.chk.fmt!" % filename + err_msg)
-                        self._produce_dummy_projections()
+                        self._produce_simpler_projections()
                         return
 
                     if self.n_k != chkpt_data["Number of kpoints"]:
 
                         self.report_warning("Different number of kpoints in"
                                             " %s.win  and in  %s.chk.fmt!" % (filename, filename) + err_msg)
-                        self._produce_dummy_projections()
+                        self._produce_simpler_projections()
                         return
 
 
@@ -2347,7 +2340,7 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
                     try:
                         if len(temp) != dim:
                             self.report_warning("Invalid mp_grid in %s.chk.fmt!" % filename + err_msg)
-                            self._produce_dummy_projections()
+                            self._produce_simpler_projections()
                             return
 
                         chkpt_data["mp_grid"] = []
@@ -2355,7 +2348,7 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
                              chkpt_data["mp_grid"].append(int(temp.pop(0)))
                     except ValueError:
                          self.report_warning("Invalid  mp_grid in %s.chk.fmt!" % filename + err_msg)
-                         self._produce_dummy_projections()
+                         self._produce_simpler_projections()
                          return
                     del temp
 
@@ -2363,7 +2356,7 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
 
                         self.report_warning("Different k-point grid  in %s.win"
                                             "  and in  %s.chk.fmt!" % (filename, filename) + err_msg)
-                        self._produce_dummy_projections()
+                        self._produce_simpler_projections()
                         return
 
 
@@ -2375,14 +2368,14 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
                             line = [ float(temp_l[ii]) for ii in range(dim) ]
                         except ValueError:
                             self.report_warning("Invalid value of k-point in %s.chk.fmt!" %filename)
-                            self._produce_dummy_projections()
+                            self._produce_simpler_projections()
                             return
 
                         if not numpy.allclose(self.k_point_mesh[i, :], line, 1e-6, 1e-7):
 
                             self.report_warning("Different k-point grid  in %s.win"
                                         "  and in  %s.chk.fmt!" % (filename, filename) + err_msg)
-                            self._produce_dummy_projections()
+                            self._produce_simpler_projections()
                             return
 
                     # nntot, not used by the converter
@@ -2394,13 +2387,13 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
                         chkpt_data["Number of Wannier orbitals"] = int(lines[pos])
                     except ValueError:
                         self.report_warning("Invalid number of Wannier orbitals in %s.chk.fmt!" % filename + err_msg)
-                        self._produce_dummy_projections()
+                        self._produce_simpler_projections()
                         return
 
                     if self.total_MLWF != chkpt_data["Number of Wannier orbitals"]:
                         self.report_warning("Different number of Wannier orbitals  "
                                             "in %s.win  and in  %s.chk.fmt!" % (filename, filename) + err_msg)
-                        self._produce_dummy_projections()
+                        self._produce_simpler_projections()
                         return
 
                     # checkpoint
@@ -2416,17 +2409,17 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
                         else:
                             self.report_warning("Invalid have_disentanglement keyword in "
                                                 " % s.chk.fmt, it should be 0 or 1!" % filename + err_msg)
-                            self._produce_dummy_projections()
+                            self._produce_simpler_projections()
                             return
                     except ValueError:
                         self.report_warning("Invalid have_disentanglement in  %s.chk.fmt!" % filename + err_msg)
-                        self._produce_dummy_projections()
+                        self._produce_simpler_projections()
                         return
 
                     if self._disentanglement_spin[self._name2SpinChannel[filename]] != chkpt_data["have_disentanglement"]:
                         self.report_warning("Have_disentanglement is different in " +
                                             " % s.win file and in %s.chk.fmt!" % (filename, filename) + err_msg)
-                        self._produce_dummy_projections()
+                        self._produce_simpler_projections()
                         return
 
 
@@ -2446,25 +2439,31 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
                         except ValueError:
                             self.report_warning("Invalid number of bands "
                                                 "inside energy window in  %s.chk.fmt!" % filename + err_msg)
-                            self._produce_dummy_projections()
+                            self._produce_simpler_projections()
                             return
 
                         # U_matrix_opt
                         try:
                             for nkp in range(self.n_k):
-                                for j in range(chkpt_data["Number of Wannier orbitals"]):
+                                # for each spin channel number of constructed MLWFs is the same
+                                for j in range(self.total_MLWF):
+                                    # "Number of bands" for each spin channel may be different
+                                    # self.total_Bloch is equal to maximum of bands for both spin channels
                                     for i in range(chkpt_data["Number of bands"]):
                                         pos += 1
                                         temp = lines[pos].split()  # two entries per line are expected real, imag
                                         self._u_matrix_opt[i, j, self._name2SpinChannel[filename], nkp] = float(temp[0]) + 1j * float(temp[1])
                         except ValueError:
                             self.report_warning("Invalid value of matrix U_opt!" + err_msg)
-                            self._produce_dummy_projections()
+                            self._produce_simpler_projections()
                             return
                         
                         if self.SO:
 
-                            self._rearrange_U(U_mat=self._u_matrix_opt, filename=filename)
+                            self._rearrange_U(U_mat=self._u_matrix_opt,
+                                              filename=filename,
+                                              dim1=chkpt_data["Number of bands"],
+                                              dim2=self.total_MLWF)
 
                     else:
                         for nkp in range(self.n_k):
@@ -2473,24 +2472,27 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
                     # U_matrix
                     try:
                         for nkp in range(self.n_k):
-                            for j in range(chkpt_data["Number of Wannier orbitals"]):
-                                for i in range(chkpt_data["Number of Wannier orbitals"]):
+                            for j in range(self.total_MLWF):
+                                for i in range(self.total_MLWF):
                                     pos += 1
                                     temp = lines[pos].split()  # two entries per line are expected real, imag
                                     self._u_matrix[i, j, self._name2SpinChannel[filename], nkp] = float(temp[0]) + 1j * float(temp[1])
                     except ValueError:
                         self.report_warning("Invalid value of matrix U!" + err_msg)
-                        self._produce_dummy_projections()
+                        self._produce_simpler_projections()
                         return
 
                     if self.SO:
 
-                       self._rearrange_U(U_mat=self._u_matrix, filename=filename)
+                       self._rearrange_U(U_mat=self._u_matrix,
+                                         filename=filename,
+                                         dim1=self.total_MLWF,
+                                         dim2=self.total_MLWF)
 
 
         except IOError:
             self.report_warning("Opening file %s.chk.fmt failed. " % filename + err_msg)
-            self._produce_dummy_projections()
+            self._produce_simpler_projections()
             return
 
         self.make_statement("The information from formatted %s.chk.fmt file has been read." % filename)
@@ -2498,29 +2500,34 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
         return chkpt_data
 
 
-    def _rearrange_U(self, U_mat=None, filename=None):
+    def _rearrange_U(self, U_mat=None, filename=None, dim1=None, dim2 =None):
         """
         Rearranges content of U_mat. To be used in case of spin-orbit coupling.
+
+        :param filename: name of file from which U matrix is read (filename.chk.fmt)
+        :type filename: str
+
+        :param dim1: first dimension of the U matrix
+        :type dim1: int
+
+        :param dim2: second dimension of the U matrix
+        :type dim2: int
+
         :param U_mat: U matrix to rearrange
+        :type U_mat: numpy.array((dim1, dim2, n_spin, n_k), numpy.complex_)
 
         """
-        # in case of spin-orbit coupling we have to rearrange:
-        # 1_up 1_down 2_up 2_down ..... n_up n_down   to
-        # 1_up 2_up ....n_up 1_down 2_down ..... n_down
 
-        num_wann_channel = self.total_MLWF / 2
-        ind = range(0, self.total_MLWF, 2)
         temp_array = deepcopy(U_mat)
         for nkp in range(self.n_k):
-            for ii, ind_i in enumerate(ind):
-                for jj, ind_j in enumerate(ind):
-                    U_mat[ii, jj, self._name2SpinChannel[filename], nkp] = temp_array[ind_i, ind_j, self._name2SpinChannel[filename], nkp]
-                    U_mat[ii + num_wann_channel, jj + num_wann_channel, self._name2SpinChannel[filename], nkp] = temp_array[ind_i + 1, ind_j + 1, self._name2SpinChannel[filename], nkp]
+            for ind_i in range(dim1):
+                ordered_i = self._soc_arrangement[ind_i]
+                for ind_j in range(dim2):
+                    ordered_j = self._soc_arrangement[ind_j]
+                    U_mat[ind_i, ind_j, self._name2SpinChannel[filename], nkp] = temp_array[ordered_i, ordered_j, self._name2SpinChannel[filename], nkp]
 
 
-
-
-    def _produce_full_U_matrix(self):
+    def _set_full_U_matrix(self):
         """
         Produces full rotation matrix from Bloch states to MLWFs.
         """
@@ -2557,11 +2564,11 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
 
     def _produce_projections(self):
         """
-        In case correlated and non correlated MLWFs in the system dummy projections will be built.
+        In case correlated and non correlated MLWFs in the system simpler projections will be built.
         Projections from Bloch to correlated space are built otherwise.
 
         Produces projections required by SumkDFT, in case *.chk.fmt file(s) is/are present.
-        Dummy projections in the form of identity matrices are produced otherwise.
+        Simpler projections in the form of identity matrices are produced otherwise.
 
         Projections are produced for all correlated shells, also those which are symmetry equivalent.
         Projections have a form of rotation from Bloch space to the correlated subspace.
@@ -2569,23 +2576,23 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
         """
 
         # If number of shells is larger than number of correlated shells  then seedname*.chk
-        # is neglected and dummy projections are always built.
+        # is neglected and simpler projections are always built.
 
         if len(self.shells) > len(self.corr_shells):
             if self._n_spin == 1:
                 self.make_verbose_statement("Number of shells larger than the number of "
                                             "correlated shells. %s.chk.fmt file will be" % self._filename +
-                                            " neglected and dummy projections will be built.")
+                                            " neglected and simpler projections will be built.")
             elif self._n_spin == 2:
                 self.make_verbose_statement("Number of shells larger than the number of "
                                             "correlated shells. %s_up.chk.fmt "
                                             "and %s_down.chk.fmt files will be" % (self._filename, self._filename) +
-                                            " neglected and dummy projections will be built.")
+                                            " neglected and simpler projections will be built.")
             else:
                 self.report_error("Improper value of 'n_spin'. Method '_produce_projections' "
                                   "should be executed after data from *win file(s) is read!")
 
-            self._produce_dummy_projections()
+            self._produce_simpler_projections()
             return
 
         self.proj_mat = None
@@ -2597,7 +2604,7 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
             if self._n_spin == 1:
 
                 self._read_chkpt_fmt(filename=self._filename)
-                # checks if self._proj_mat is not already dummy projections
+                # checks if self._proj_mat is not already simpler projections
                 if self.proj_mat is not None:
 
                     return
@@ -2605,7 +2612,7 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
             elif self._n_spin == 2:
                 # up channel
                 self._read_chkpt_fmt(filename=self._filename + "_up")
-                # checks if self._proj_mat is not already dummy projections
+                # checks if self._proj_mat is not already simpler projections
                 if self.proj_mat is not None:
 
                     return
@@ -2614,7 +2621,7 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
 
                     self._read_chkpt_fmt(filename=self._filename + "_down")
 
-                # checks if self._proj_mat is not already dummy projections
+                # checks if self._proj_mat is not already simpler projections
                 if self.proj_mat is not None:
 
                      return
@@ -2630,7 +2637,7 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
                                   "Number of Bloch states is %s " % self.total_Bloch +
                                   "Maximum number of bands in the energy window is %s" % max_num_band)
 
-            self._produce_full_U_matrix()
+            self._set_full_U_matrix()
 
             # Initialises the projections:
             self.proj_mat = numpy.zeros((self.n_k, self._n_spin, self.n_corr_shells, max([crsh['dim'] for crsh in self.corr_shells]),
@@ -2652,21 +2659,21 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
                                 "files  have been built." % (self._filename, self._filename))
 
 
-    def _produce_dummy_projections(self):
+    def _produce_simpler_projections(self):
         """
-        Produces dummy projections.
+        Produces simpler projections.
         """
         self._set_U_None()
-        self._set_proj_mat_dummy()
-        self._produce_projections_dummy_core()
-        self._dummy_projections_used = True
-        self.make_statement("Dummy projections have been built.")
+        self._set_proj_mat_simpler()
+        self._produce_projections_simpler_core()
+        self._simpler_projections_used = True
+        self.make_statement("Simpler projections have been built.")
 
 
-    def _produce_projections_dummy_core(self):
+    def _produce_projections_simpler_core(self):
         """"
 
-        Produces dummy projections ("rectangular identity matrices")
+        Produces simpler projections ("rectangular identity matrices")
         required by SumkDFT in case chk.fmt file is not present or not used.
 
         """
@@ -2687,7 +2694,7 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
 
         self.hopping = numpy.zeros((self.n_k, self._n_spin, self.total_Bloch, self.total_Bloch), numpy.complex_)
 
-        if self._dummy_projections_used:
+        if self._simpler_projections_used:
             for k in range(self.n_k):
                 for s in range(self._n_spin):
 
@@ -2925,10 +2932,10 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
              In case formatted checkpoint file: case.chk.fmt is provided proj_mat are constructed from
              U matrices which are read from it.
 
-             In case formatted checkpoint is not found "dummy" projections are built.
+             In case formatted checkpoint is not found "simpler" projections are built.
 
              In case there are non-correlated shells in the Hamiltonian (number of shells larger than the number
-             of correlated shells) case.chk.fmt is neglected and "dummy" projections are built.
+             of correlated shells) case.chk.fmt is neglected and "simpler" projections are built.
 
         -bz_weights (numpy.array.float): one dimensional array which
         contains weights of the k-points for the summation.
@@ -2944,7 +2951,7 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
                In case formatted checkpoint is used to built projections hopping is
                constructed from rotation of H_k with projections as rotating matrices.
 
-               In case projections are "dummy" projections H_k becomes the hopping array.
+               In case projections are "simpler" projections H_k becomes the hopping array.
 
         """
 
@@ -3054,7 +3061,7 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
         """
 
         :return: Whole rotation matrix from Bloch states to MLWF.
-        If dummy projections are used it is set to None.
+        If simpler projections are used it is set to None.
 
         """
 

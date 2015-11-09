@@ -47,7 +47,7 @@ converter = Wannier90Converter(filename=input_file)
 reporter.read_ASCII_fortran_file(file_to_read=input_file, default_dic=default_par)
 
 converter._win_par["projections"] = default_par["projections"]
-converter._get_shells()  # sort is calculated from HR,
+converter._set_shells()  # sort is calculated from HR,
 ar = HDFArchive('wannier_converter_proj.output.h5', 'w')
 ar["shells"] = converter.shells
 del ar
