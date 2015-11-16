@@ -1261,12 +1261,12 @@ class Wannier90Converter(Check, ConverterTools, Readh5file, Save):
         for state in self.shells:
 
             if state["l"] < 0:  # non-correlated hybridized states
-                hyb_found = False
+                hyb_valid = True
                 for entry in self._all_states:
-                    if state["l"] == entry["l"] and state["dim"] != entry["dim"]:
-                        hyb_found = True
+                    if state["l"] == entry["l"] and  (abs(entry["l"]) + 1)  < state["dim"]:
+                        hyb_valid = False
                         break
-                if not hyb_found:
+                if not hyb_valid:
                     self.report_error("Wrong structure of shells!")
             elif state["dim"] > (state["l"] * 2 + 1):
                 self.report_error("Wrong structure of shells!")
