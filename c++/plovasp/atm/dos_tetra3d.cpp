@@ -257,7 +257,7 @@ int dos_tet_weights(double en, double *eigs, int *inds,
     else
     {
       s = fmin(fabs(e1 - e2), fabs(e3 - e1));
-      s = fmin(fabs(s), fabs(e4 - e1));
+      s = fmin(std::abs(s), fabs(e4 - e1));
       s /= 100.0;
       s = fmax(std::abs(s), 1.0e-20) * I;
 
@@ -275,8 +275,8 @@ int dos_tet_weights(double en, double *eigs, int *inds,
     else
     {
       s = fmin(fabs(e3 - e2), fabs(e3 - e1));
-      s = fmin(fabs(s), fabs(e4 - e1));
-      s = fmin(fabs(s), fabs(e4 - e2));
+      s = fmin(std::abs(s), fabs(e4 - e1));
+      s = fmin(std::abs(s), fabs(e4 - e2));
       s /= 100.0;
       s = fmax(std::abs(s), 1.0e-20) * I;
 
@@ -293,7 +293,7 @@ int dos_tet_weights(double en, double *eigs, int *inds,
     else
     {
       s = fmin(fabs(e4 - e2), fabs(e4 - e1));
-      s = fmin(fabs(s), fabs(e4 - e3));
+      s = fmin(std::abs(s), fabs(e4 - e3));
       s /= 100.0;
       s = fmax(std::abs(s), 1.0e-20) * I;
 
